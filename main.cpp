@@ -7,6 +7,9 @@
 #include <string>
 #include <vector>
 
+#include "cmdline.h"
+#include "logger.h"
+
 namespace {
 
 class Sha256 {
@@ -169,77 +172,128 @@ bool verify_token(const std::string &user_token) {
 
 bool run_module_command(const std::string &module_name, const std::string &command,
                         const std::vector<std::string> &extra_args) {
-  std::cout << "module=" << module_name << " command=" << command;
+  std::ostringstream args_msg;
+  args_msg << "module=" << module_name << " command=" << command;
   if (!extra_args.empty()) {
-    std::cout << " args=[";
+    args_msg << " args=[";
     for (size_t i = 0; i < extra_args.size(); ++i) {
-      std::cout << extra_args[i];
+      args_msg << extra_args[i];
       if (i + 1 != extra_args.size()) {
-        std::cout << ", ";
+        args_msg << ", ";
       }
     }
-    std::cout << "]";
+    args_msg << "]";
   }
-  std::cout << '\n';
+  SPDLOG_INFO("{}", args_msg.str());
 
   if (command == "start") {
-    std::cout << "Start module: " << module_name << '\n';
+    SPDLOG_INFO("Start module: {}", module_name);
     return true;
   }
   if (command == "stop") {
-    std::cout << "Stop module: " << module_name << '\n';
+    SPDLOG_INFO("Stop module: {}", module_name);
     return true;
   }
   if (command == "preinst") {
-    std::cout << "Run pre-install actions for module: " << module_name << '\n';
+    SPDLOG_INFO("Run pre-install actions for module: {}", module_name);
     return true;
   }
   if (command == "postinst") {
-    std::cout << "Run post-install actions for module: " << module_name << '\n';
+    SPDLOG_INFO("Run post-install actions for module: {}", module_name);
     return true;
   }
   if (command == "preun") {
-    std::cout << "Run pre-uninstall actions for module: " << module_name << '\n';
+    SPDLOG_INFO("Run pre-uninstall actions for module: {}", module_name);
     return true;
   }
   if (command == "postun") {
-    std::cout << "Run post-uninstall actions for module: " << module_name << '\n';
+    SPDLOG_INFO("Run post-uninstall actions for module: {}", module_name);
     return true;
   }
 
-  std::cerr << "Unsupported command: " << command
-            << " (supported: start|stop|preinst|postinst|preun|postun)\n";
+  SPDLOG_ERROR("Unsupported command: {} (supported: start|stop|preinst|postinst|preun|postun)", command);
   return false;
 }
 
-void print_usage(const char *prog) {
-  std::cerr << "Usage: " << prog
-            << " <module_name> <command> <magicnum(user_token)> [args...]\n";
+std::vector<std::string> normalize_args(int argc, char *argv[]) {
+  std::vector<std::string> args;
+
+  if (argc >= 4 && argv[1][0] != '-') {
+    args.push_back(argv[0]);
+    args.push_back("--module_name");
+    args.push_back(argv[1]);
+    args.push_back("--command");
+    args.push_back(argv[2]);
+    args.push_back("--magicnum");
+    args.push_back(argv[3]);
+    for (int i = 4; i < argc; ++i) {
+      args.push_back(argv[i]);
+    }
+    return args;
+  }
+
+  for (int i = 0; i < argc; ++i) {
+    args.push_back(argv[i]);
+  }
+  return args;
 }
 
 } // namespace
 
 int main(int argc, char *argv[]) {
-  if (argc < 4) {
-    print_usage(argv[0]);
+  MYLOG_RESET("moduleCli.log", 1024 * 1024, 3);
+  MYLOG_LOG_LEVEL("debug");
+  if (argc == 1) {
+    cmdline::parser help_parser;
+    help_parser.set_program_name(argv[0]);
+    help_parser.footer("[args...]");
+    help_parser.add<std::string>("module_name", 'm', "module name", true);
+    help_parser.add<std::string>("command", 'c', "module command", true);
+    help_parser.add<std::string>("magicnum", 't', "user token", true);
+    SPDLOG_ERROR("\n{}", help_parser.usage());
     return 1;
   }
 
-  const std::string module_name = argv[1];
-  const std::string command = argv[2];
-  const std::string user_token = argv[3];
-
-  std::vector<std::string> extra_args;
-  for (int i = 4; i < argc; ++i) {
-    extra_args.push_back(argv[i]);
+  if (argc == 2 && (std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help")) {
+    cmdline::parser help_parser;
+    help_parser.set_program_name(argv[0]);
+    help_parser.footer("[args...]");
+    help_parser.add<std::string>("module_name", 'm', "module name", true);
+    help_parser.add<std::string>("command", 'c', "module command", true);
+    help_parser.add<std::string>("magicnum", 't', "user token", true);
+    SPDLOG_INFO("\n{}", help_parser.usage());
+    return 0;
   }
 
+  cmdline::parser parser;
+  parser.set_program_name(argv[0]);
+  parser.footer("[args...]");
+  parser.add<std::string>("module_name", 'm', "module name", true);
+  parser.add<std::string>("command", 'c', "module command", true, std::string(),
+                          cmdline::oneof<std::string>("start", "stop", "preinst", "postinst", "preun", "postun"));
+  parser.add<std::string>("magicnum", 't', "user token", true);
+
+  const std::vector<std::string> normalized = normalize_args(argc, argv);
+  std::vector<const char *> cargs(normalized.size());
+  for (size_t i = 0; i < normalized.size(); ++i) {
+    cargs[i] = normalized[i].c_str();
+  }
+
+  if (!parser.parse(static_cast<int>(cargs.size()), &cargs[0])) {
+    SPDLOG_ERROR("{}\n{}", parser.error(), parser.usage());
+    return 1;
+  }
+
+  const std::string module_name = parser.get<std::string>("module_name");
+  const std::string command = parser.get<std::string>("command");
+  const std::string user_token = parser.get<std::string>("magicnum");
+
   if (!verify_token(user_token)) {
-    std::cerr << "Token verification failed.\n";
+    SPDLOG_ERROR("Token verification failed.");
     return 2;
   }
 
-  if (!run_module_command(module_name, command, extra_args)) {
+  if (!run_module_command(module_name, command, parser.rest())) {
     return 3;
   }
 
