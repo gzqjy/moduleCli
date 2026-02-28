@@ -214,7 +214,7 @@ bool run_module_command(const std::string &module_name, const std::string &comma
 
 void print_usage(const char *prog) {
   std::cerr << "Usage: " << prog
-            << " <module_name> <command> <magicnum(user_token)> [arg1] [arg2]\n";
+            << " <module_name> <command> <magicnum(user_token)> [args...]\n";
 }
 
 } // namespace
