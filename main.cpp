@@ -8,6 +8,13 @@
 #include <vector>
 
 #include <boost/process.hpp>
+#include <boost/process/v1.hpp>
+
+#ifdef _WIN32
+#include <boost/process/v1/detail/windows/environment.hpp>
+#else
+#include <boost/process/v1/detail/posix/environment.hpp>
+#endif
 
 #include "logger.h"
 #include "picosha2.h"
@@ -53,7 +60,7 @@ std::vector<int> find_module_pids(const std::string &module_name) {
   }
 
   std::string line;
-  const int self_pid = static_cast<int>(bp::this_process::get_id());
+  const int self_pid = static_cast<int>(boost::process::v1::detail::windows::get_id());
   while (std::getline(output, line)) {
     if (line.empty() || line.find("No tasks are running") != std::string::npos) {
       continue;
@@ -94,7 +101,7 @@ std::vector<int> find_module_pids(const std::string &module_name) {
   }
 
   std::string line;
-  const int self_pid = static_cast<int>(bp::this_process::get_id());
+  const int self_pid = static_cast<int>(boost::process::v1::detail::posix::get_id());
   while (std::getline(output, line)) {
     if (line.empty()) {
       continue;
