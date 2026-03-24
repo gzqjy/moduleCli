@@ -1,10 +1,9 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
-#include <iomanip>
 #include <iostream>
-#include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "cmdline.h"
@@ -16,7 +15,9 @@ class Sha256 {
 public:
   Sha256() { reset(); }
 
-  void update(const unsigned char *data, size_t len) {
+  void update(const std::string &input) {
+    const auto *data = reinterpret_cast<const std::uint8_t *>(input.c_str());
+    const size_t len = input.size();
     for (size_t i = 0; i < len; ++i) {
       data_[datalen_++] = data[i];
       if (datalen_ == 64) {
@@ -27,13 +28,8 @@ public:
     }
   }
 
-  void update(const std::string &input) {
-    update(reinterpret_cast<const unsigned char *>(input.c_str()), input.size());
-  }
-
   std::string final_hex() {
-    unsigned int i = datalen_;
-
+    std::uint64_t i = datalen_;
     if (datalen_ < 56) {
       data_[i++] = 0x80;
       while (i < 56) {
@@ -49,31 +45,26 @@ public:
     }
 
     bitlen_ += static_cast<std::uint64_t>(datalen_) * 8;
-    data_[63] = static_cast<unsigned char>(bitlen_);
-    data_[62] = static_cast<unsigned char>(bitlen_ >> 8);
-    data_[61] = static_cast<unsigned char>(bitlen_ >> 16);
-    data_[60] = static_cast<unsigned char>(bitlen_ >> 24);
-    data_[59] = static_cast<unsigned char>(bitlen_ >> 32);
-    data_[58] = static_cast<unsigned char>(bitlen_ >> 40);
-    data_[57] = static_cast<unsigned char>(bitlen_ >> 48);
-    data_[56] = static_cast<unsigned char>(bitlen_ >> 56);
+    for (int j = 0; j < 8; ++j) {
+      data_[63 - j] = static_cast<std::uint8_t>(bitlen_ >> (j * 8));
+    }
     transform();
 
-    std::ostringstream oss;
+    char buf[65] = {0};
     for (int j = 0; j < 8; ++j) {
-      oss << std::hex << std::setw(8) << std::setfill('0') << state_[j];
+      std::snprintf(buf + j * 8, 9, "%08x", state_[j]);
     }
-    return oss.str();
+    return std::string(buf);
   }
 
 private:
-  static std::uint32_t rotr(std::uint32_t x, std::uint32_t n) { return (x >> n) | (x << (32 - n)); }
-  static std::uint32_t ch(std::uint32_t x, std::uint32_t y, std::uint32_t z) { return (x & y) ^ (~x & z); }
-  static std::uint32_t maj(std::uint32_t x, std::uint32_t y, std::uint32_t z) { return (x & y) ^ (x & z) ^ (y & z); }
-  static std::uint32_t ep0(std::uint32_t x) { return rotr(x, 2) ^ rotr(x, 13) ^ rotr(x, 22); }
-  static std::uint32_t ep1(std::uint32_t x) { return rotr(x, 6) ^ rotr(x, 11) ^ rotr(x, 25); }
-  static std::uint32_t sig0(std::uint32_t x) { return rotr(x, 7) ^ rotr(x, 18) ^ (x >> 3); }
-  static std::uint32_t sig1(std::uint32_t x) { return rotr(x, 17) ^ rotr(x, 19) ^ (x >> 10); }
+  static inline std::uint32_t rotr(std::uint32_t x, std::uint32_t n) { return (x >> n) | (x << (32 - n)); }
+  static inline std::uint32_t ch(std::uint32_t x, std::uint32_t y, std::uint32_t z) { return (x & y) ^ (~x & z); }
+  static inline std::uint32_t maj(std::uint32_t x, std::uint32_t y, std::uint32_t z) { return (x & y) ^ (x & z) ^ (y & z); }
+  static inline std::uint32_t ep0(std::uint32_t x) { return rotr(x, 2) ^ rotr(x, 13) ^ rotr(x, 22); }
+  static inline std::uint32_t ep1(std::uint32_t x) { return rotr(x, 6) ^ rotr(x, 11) ^ rotr(x, 25); }
+  static inline std::uint32_t sig0(std::uint32_t x) { return rotr(x, 7) ^ rotr(x, 18) ^ (x >> 3); }
+  static inline std::uint32_t sig1(std::uint32_t x) { return rotr(x, 17) ^ rotr(x, 19) ^ (x >> 10); }
 
   void reset() {
     datalen_ = 0;
@@ -103,46 +94,35 @@ private:
 
     std::uint32_t m[64];
     for (int i = 0, j = 0; i < 16; ++i, j += 4) {
-      m[i] = (static_cast<std::uint32_t>(data_[j]) << 24) | (static_cast<std::uint32_t>(data_[j + 1]) << 16) |
-             (static_cast<std::uint32_t>(data_[j + 2]) << 8) | static_cast<std::uint32_t>(data_[j + 3]);
+      m[i] = (std::uint32_t(data_[j]) << 24) | (std::uint32_t(data_[j + 1]) << 16) | (std::uint32_t(data_[j + 2]) << 8) |
+             std::uint32_t(data_[j + 3]);
     }
     for (int i = 16; i < 64; ++i) {
       m[i] = sig1(m[i - 2]) + m[i - 7] + sig0(m[i - 15]) + m[i - 16];
     }
 
-    std::uint32_t a = state_[0];
-    std::uint32_t b = state_[1];
-    std::uint32_t c = state_[2];
-    std::uint32_t d = state_[3];
-    std::uint32_t e = state_[4];
-    std::uint32_t f = state_[5];
-    std::uint32_t g = state_[6];
-    std::uint32_t h = state_[7];
+    std::uint32_t v[8];
+    std::memcpy(v, state_, sizeof(v));
 
     for (int i = 0; i < 64; ++i) {
-      std::uint32_t t1 = h + ep1(e) + ch(e, f, g) + k[i] + m[i];
-      std::uint32_t t2 = ep0(a) + maj(a, b, c);
-      h = g;
-      g = f;
-      f = e;
-      e = d + t1;
-      d = c;
-      c = b;
-      b = a;
-      a = t1 + t2;
+      const std::uint32_t t1 = v[7] + ep1(v[4]) + ch(v[4], v[5], v[6]) + k[i] + m[i];
+      const std::uint32_t t2 = ep0(v[0]) + maj(v[0], v[1], v[2]);
+      v[7] = v[6];
+      v[6] = v[5];
+      v[5] = v[4];
+      v[4] = v[3] + t1;
+      v[3] = v[2];
+      v[2] = v[1];
+      v[1] = v[0];
+      v[0] = t1 + t2;
     }
 
-    state_[0] += a;
-    state_[1] += b;
-    state_[2] += c;
-    state_[3] += d;
-    state_[4] += e;
-    state_[5] += f;
-    state_[6] += g;
-    state_[7] += h;
+    for (int i = 0; i < 8; ++i) {
+      state_[i] += v[i];
+    }
   }
 
-  unsigned char data_[64];
+  std::uint8_t data_[64];
   std::uint32_t datalen_;
   std::uint64_t bitlen_;
   std::uint32_t state_[8];
@@ -158,84 +138,48 @@ bool verify_token(const std::string &user_token) {
   const std::string salt = "4c61a9e9-bd52-40c8-91d3-5d37776e687d";
   const long long window_size = 60;
 
-  const std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
-  const std::chrono::seconds duration = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch());
-  const long long seconds = duration.count();
-  const long long current_window = seconds / window_size;
-  const long long prev_window = current_window - 1;
+  const auto now_sec = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+  const long long current_window = now_sec / window_size;
 
-  const std::string current_expected = sha256_hex(std::to_string(current_window) + salt);
-  const std::string prev_expected = sha256_hex(std::to_string(prev_window) + salt);
+  const auto check = [&](long long win) { return user_token == sha256_hex(std::to_string(win) + ":" + salt); };
 
-  return user_token == current_expected || user_token == prev_expected;
+  return check(current_window) || check(current_window - 1);
 }
 
 bool run_module_command(const std::string &module_name, const std::string &command,
                         const std::vector<std::string> &extra_args) {
-  std::ostringstream args_msg;
-  args_msg << "module=" << module_name << " command=" << command;
-  if (!extra_args.empty()) {
-    args_msg << " args=[";
-    for (size_t i = 0; i < extra_args.size(); ++i) {
-      args_msg << extra_args[i];
-      if (i + 1 != extra_args.size()) {
-        args_msg << ", ";
-      }
-    }
-    args_msg << "]";
-  }
-  SPDLOG_INFO("{}", args_msg.str());
+  static const std::unordered_map<std::string, std::string> cmd_desc = {{"start", "Start module"},
+                                                                         {"stop", "Stop module"},
+                                                                         {"preinst", "Run pre-install actions"},
+                                                                         {"postinst", "Run post-install actions"},
+                                                                         {"preun", "Run pre-uninstall actions"},
+                                                                         {"postun", "Run post-uninstall actions"}};
 
-  if (command == "start") {
-    SPDLOG_INFO("Start module: {}", module_name);
-    return true;
-  }
-  if (command == "stop") {
-    SPDLOG_INFO("Stop module: {}", module_name);
-    return true;
-  }
-  if (command == "preinst") {
-    SPDLOG_INFO("Run pre-install actions for module: {}", module_name);
-    return true;
-  }
-  if (command == "postinst") {
-    SPDLOG_INFO("Run post-install actions for module: {}", module_name);
-    return true;
-  }
-  if (command == "preun") {
-    SPDLOG_INFO("Run pre-uninstall actions for module: {}", module_name);
-    return true;
-  }
-  if (command == "postun") {
-    SPDLOG_INFO("Run post-uninstall actions for module: {}", module_name);
-    return true;
+  const auto it = cmd_desc.find(command);
+  if (it == cmd_desc.end()) {
+    SPDLOG_ERROR("Unsupported command: {}", command);
+    return false;
   }
 
-  SPDLOG_ERROR("Unsupported command: {} (supported: start|stop|preinst|postinst|preun|postun)", command);
-  return false;
+  SPDLOG_INFO("{}: {} (Args count: {})", it->second, module_name, extra_args.size());
+  return true;
 }
 
 std::vector<std::string> normalize_args(int argc, char *argv[]) {
-  std::vector<std::string> args;
+  std::vector<std::string> normalized;
+  normalized.push_back(argv[0]);
 
   if (argc >= 4 && argv[1][0] != '-') {
-    args.push_back(argv[0]);
-    args.push_back("--module_name");
-    args.push_back(argv[1]);
-    args.push_back("--command");
-    args.push_back(argv[2]);
-    args.push_back("--magicnum");
-    args.push_back(argv[3]);
+    normalized.insert(normalized.end(), {"--module_name", argv[1], "--command", argv[2], "--magicnum", argv[3]});
     for (int i = 4; i < argc; ++i) {
-      args.push_back(argv[i]);
+      normalized.push_back(argv[i]);
     }
-    return args;
+  } else {
+    for (int i = 1; i < argc; ++i) {
+      normalized.push_back(argv[i]);
+    }
   }
-
-  for (int i = 0; i < argc; ++i) {
-    args.push_back(argv[i]);
-  }
-  return args;
+  return normalized;
 }
 
 } // namespace
@@ -243,59 +187,47 @@ std::vector<std::string> normalize_args(int argc, char *argv[]) {
 int main(int argc, char *argv[]) {
   MYLOG_RESET("moduleCli.log", 1024 * 1024, 3);
   MYLOG_LOG_LEVEL("debug");
-  if (argc == 1) {
-    cmdline::parser help_parser;
-    help_parser.set_program_name(argv[0]);
-    help_parser.footer("[args...]");
-    help_parser.add<std::string>("module_name", 'm', "module name", true);
-    help_parser.add<std::string>("command", 'c', "module command", true);
-    help_parser.add<std::string>("magicnum", 't', "user token", true);
-    SPDLOG_ERROR("\n{}", help_parser.usage());
-    return 1;
-  }
 
-  if (argc == 2 && (std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help")) {
-    cmdline::parser help_parser;
-    help_parser.set_program_name(argv[0]);
-    help_parser.footer("[args...]");
-    help_parser.add<std::string>("module_name", 'm', "module name", true);
-    help_parser.add<std::string>("command", 'c', "module command", true);
-    help_parser.add<std::string>("magicnum", 't', "user token", true);
-    SPDLOG_INFO("\n{}", help_parser.usage());
+  auto setup_parser = [&](cmdline::parser &p) {
+    p.set_program_name("module_mgr");
+    p.footer("[extra_args...]");
+    p.add<std::string>("module_name", 'm', "Module name to operate", true);
+    p.add<std::string>("command", 'c', "Operation: start|stop|preinst|postinst|preun|postun", true, "",
+                       cmdline::oneof<std::string>("start", "stop", "preinst", "postinst", "preun", "postun"));
+    p.add<std::string>("magicnum", 't', "Security token (TOTP based)", true);
+  };
+
+  if (argc == 1 || (argc == 2 && std::string(argv[1]) == "--help")) {
+    cmdline::parser p;
+    setup_parser(p);
+    std::cout << p.usage() << std::endl;
     return 0;
   }
 
   cmdline::parser parser;
-  parser.set_program_name(argv[0]);
-  parser.footer("[args...]");
-  parser.add<std::string>("module_name", 'm', "module name", true);
-  parser.add<std::string>("command", 'c', "module command", true, std::string(),
-                          cmdline::oneof<std::string>("start", "stop", "preinst", "postinst", "preun", "postun"));
-  parser.add<std::string>("magicnum", 't', "user token", true);
+  setup_parser(parser);
 
-  const std::vector<std::string> normalized = normalize_args(argc, argv);
-  std::vector<const char *> cargs(normalized.size());
-  for (size_t i = 0; i < normalized.size(); ++i) {
-    cargs[i] = normalized[i].c_str();
+  const auto normalized = normalize_args(argc, argv);
+  std::vector<const char *> c_args;
+  c_args.reserve(normalized.size());
+  for (const auto &s : normalized) {
+    c_args.push_back(s.c_str());
   }
 
-  if (!parser.parse(static_cast<int>(cargs.size()), &cargs[0])) {
-    SPDLOG_ERROR("{}\n{}", parser.error(), parser.usage());
+  if (!parser.parse(static_cast<int>(c_args.size()), const_cast<char **>(c_args.data()))) {
+    SPDLOG_ERROR("Parse error: {}\n{}", parser.error(), parser.usage());
     return 1;
   }
 
-  const std::string module_name = parser.get<std::string>("module_name");
-  const std::string command = parser.get<std::string>("command");
-  const std::string user_token = parser.get<std::string>("magicnum");
-
-  if (!verify_token(user_token)) {
-    SPDLOG_ERROR("Token verification failed.");
+  if (!verify_token(parser.get<std::string>("magicnum"))) {
+    SPDLOG_ERROR("Security verification failed. Invalid or expired token.");
     return 2;
   }
 
-  if (!run_module_command(module_name, command, parser.rest())) {
+  if (!run_module_command(parser.get<std::string>("module_name"), parser.get<std::string>("command"), parser.rest())) {
     return 3;
   }
 
+  SPDLOG_INFO("Command executed successfully.");
   return 0;
 }
