@@ -20,7 +20,7 @@ std::string sha256_hex(const std::string &input) {
 }
 
 std::string basename_of(const std::string &path) {
-  const std::size_t pos = path.find_last_of('/');
+  const std::size_t pos = path.find_last_of("/\\");
   return pos == std::string::npos ? path : path.substr(pos + 1);
 }
 
@@ -36,6 +36,49 @@ std::string resolve_module_binary(const std::string &module_name) {
 std::vector<int> find_module_pids(const std::string &module_name) {
   std::vector<int> pids;
   const std::string process_name = basename_of(module_name);
+#ifdef _WIN32
+  const std::string image_name = process_name.find(".exe") == std::string::npos ? process_name + ".exe" : process_name;
+  std::string filter = "IMAGENAME eq " + image_name;
+  bp::ipstream output;
+  std::error_code ec;
+  bp::child query(bp::search_path("tasklist"), "/FO", "CSV", "/NH", "/FI", filter, bp::std_out > output, bp::std_err > bp::null, ec);
+  if (ec) {
+    SPDLOG_ERROR("Failed to execute tasklist for '{}': {}", image_name, ec.message());
+    return pids;
+  }
+
+  query.wait();
+  if (query.exit_code() != 0) {
+    return pids;
+  }
+
+  std::string line;
+  const int self_pid = static_cast<int>(bp::this_process::get_id());
+  while (std::getline(output, line)) {
+    if (line.empty() || line.find("No tasks are running") != std::string::npos) {
+      continue;
+    }
+
+    // CSV sample: "xxx.exe","1234","Console","1","12,344 K"
+    const std::size_t first_comma = line.find(',');
+    if (first_comma == std::string::npos || first_comma + 1 >= line.size()) {
+      continue;
+    }
+    const std::size_t pid_start = line.find('"', first_comma + 1);
+    if (pid_start == std::string::npos) {
+      continue;
+    }
+    const std::size_t pid_end = line.find('"', pid_start + 1);
+    if (pid_end == std::string::npos || pid_end <= pid_start + 1) {
+      continue;
+    }
+
+    const int pid = std::atoi(line.substr(pid_start + 1, pid_end - pid_start - 1).c_str());
+    if (pid > 0 && pid != self_pid) {
+      pids.push_back(pid);
+    }
+  }
+#else
   bp::ipstream output;
   std::error_code ec;
 
@@ -62,18 +105,47 @@ std::vector<int> find_module_pids(const std::string &module_name) {
       pids.push_back(pid);
     }
   }
+#endif
 
   return pids;
 }
 
 bool send_signal(int pid, const std::string &signal) {
+#ifdef _WIN32
+  std::vector<std::string> args;
+  args.push_back("/PID");
+  args.push_back(std::to_string(pid));
+  args.push_back("/T");
+  if (signal == "-KILL") {
+    args.push_back("/F");
+  }
+  const int rc = bp::system(bp::search_path("taskkill"), bp::args(args), bp::std_out > bp::null, bp::std_err > bp::null);
+  return rc == 0;
+#else
   const int rc = bp::system(bp::search_path("kill"), signal, std::to_string(pid), bp::std_out > bp::null, bp::std_err > bp::null);
   return rc == 0;
+#endif
 }
 
 bool is_process_alive(int pid) {
+#ifdef _WIN32
+  bp::ipstream output;
+  std::string pid_filter = "PID eq " + std::to_string(pid);
+  const int rc = bp::system(bp::search_path("tasklist"), "/FO", "CSV", "/NH", "/FI", pid_filter, bp::std_out > output, bp::std_err > bp::null);
+  if (rc != 0) {
+    return false;
+  }
+  std::string line;
+  while (std::getline(output, line)) {
+    if (!line.empty() && line.find("No tasks are running") == std::string::npos) {
+      return true;
+    }
+  }
+  return false;
+#else
   const int rc = bp::system(bp::search_path("kill"), "-0", std::to_string(pid), bp::std_out > bp::null, bp::std_err > bp::null);
   return rc == 0;
+#endif
 }
 
 bool start_module(const std::string &module_name, const std::vector<std::string> &extra_args) {
