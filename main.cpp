@@ -6,7 +6,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "cmdline.h"
 #include "logger.h"
 
 namespace {
@@ -134,6 +133,13 @@ std::string sha256_hex(const std::string &input) {
   return ctx.final_hex();
 }
 
+void print_usage(const char *program_name) {
+  std::cout << "Usage: " << program_name
+            << " <module_name> <command> <magicnum> [extra_args...]\n"
+               "Commands: start | stop | preinst | postinst | preun | postun"
+            << std::endl;
+}
+
 bool verify_token(const std::string &user_token) {
   const std::string salt = "4c61a9e9-bd52-40c8-91d3-5d37776e687d";
   const long long window_size = 60;
@@ -146,8 +152,8 @@ bool verify_token(const std::string &user_token) {
   return check(current_window) || check(current_window - 1);
 }
 
-bool run_module_command(const std::string &module_name, const std::string &command,
-                        const std::vector<std::string> &extra_args) {
+bool handle_commands(const std::string &module_name, const std::string &command,
+                     const std::vector<std::string> &extra_args) {
   static const std::unordered_map<std::string, std::string> cmd_desc = {{"start", "Start module"},
                                                                          {"stop", "Stop module"},
                                                                          {"preinst", "Run pre-install actions"},
@@ -165,66 +171,37 @@ bool run_module_command(const std::string &module_name, const std::string &comma
   return true;
 }
 
-std::vector<std::string> normalize_args(int argc, char *argv[]) {
-  std::vector<std::string> normalized;
-  normalized.push_back(argv[0]);
-
-  if (argc >= 4 && argv[1][0] != '-') {
-    normalized.insert(normalized.end(), {"--module_name", argv[1], "--command", argv[2], "--magicnum", argv[3]});
-    for (int i = 4; i < argc; ++i) {
-      normalized.push_back(argv[i]);
-    }
-  } else {
-    for (int i = 1; i < argc; ++i) {
-      normalized.push_back(argv[i]);
-    }
-  }
-  return normalized;
-}
-
 } // namespace
 
 int main(int argc, char *argv[]) {
   MYLOG_RESET("moduleCli.log", 1024 * 1024, 3);
   MYLOG_LOG_LEVEL("debug");
 
-  auto setup_parser = [&](cmdline::parser &p) {
-    p.set_program_name("module_mgr");
-    p.footer("[extra_args...]");
-    p.add<std::string>("module_name", 'm', "Module name to operate", true);
-    p.add<std::string>("command", 'c', "Operation: start|stop|preinst|postinst|preun|postun", true, "",
-                       cmdline::oneof<std::string>("start", "stop", "preinst", "postinst", "preun", "postun"));
-    p.add<std::string>("magicnum", 't', "Security token (TOTP based)", true);
-  };
-
-  if (argc == 1 || (argc == 2 && std::string(argv[1]) == "--help")) {
-    cmdline::parser p;
-    setup_parser(p);
-    std::cout << p.usage() << std::endl;
-    return 0;
-  }
-
-  cmdline::parser parser;
-  setup_parser(parser);
-
-  const auto normalized = normalize_args(argc, argv);
-  std::vector<const char *> c_args;
-  c_args.reserve(normalized.size());
-  for (const auto &s : normalized) {
-    c_args.push_back(s.c_str());
-  }
-
-  if (!parser.parse(static_cast<int>(c_args.size()), const_cast<char **>(c_args.data()))) {
-    SPDLOG_ERROR("Parse error: {}\n{}", parser.error(), parser.usage());
+  // 1. 基础校验 (必须包含 module_name command magicnum)
+  if (argc < 4) {
+    print_usage(argv[0]);
     return 1;
   }
 
-  if (!verify_token(parser.get<std::string>("magicnum"))) {
-    SPDLOG_ERROR("Security verification failed. Invalid or expired token.");
+  // 2. 直接提取位置参数
+  std::string module_name = argv[1];
+  std::string command = argv[2];
+  std::string magicnum = argv[3];
+
+  // 3. 提取剩余的 arg1, arg2...
+  std::vector<std::string> extra_args;
+  for (int i = 4; i < argc; ++i) {
+    extra_args.push_back(argv[i]);
+  }
+
+  // 4. Token 校验
+  if (!verify_token(magicnum)) {
+    SPDLOG_ERROR("Token 校验失败！");
     return 2;
   }
 
-  if (!run_module_command(parser.get<std::string>("module_name"), parser.get<std::string>("command"), parser.rest())) {
+  // 5. 执行命令逻辑
+  if (!handle_commands(module_name, command, extra_args)) {
     return 3;
   }
 
