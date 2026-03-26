@@ -44,13 +44,17 @@ std::vector<int> find_module_pids(const std::string &module_name) {
   std::vector<int> pids;
   const std::string process_name = basename_of(module_name);
 #ifdef _WIN32
-  const std::string image_name = process_name.find(".exe") == std::string::npos ? process_name + ".exe" : process_name;
+  const std::string image_name = process_name.find(".exe") == std::string::npos
+                                     ? process_name + ".exe"
+                                     : process_name;
   std::string filter = "IMAGENAME eq " + image_name;
   bp::ipstream output;
   std::error_code ec;
-  bp::child query(bp::search_path("tasklist"), "/FO", "CSV", "/NH", "/FI", filter, bp::std_out > output, bp::std_err > bp::null, ec);
+  bp::child query(bp::search_path("tasklist"), "/FO", "CSV", "/NH", "/FI",
+                  filter, bp::std_out > output, bp::std_err > bp::null, ec);
   if (ec) {
-    SPDLOG_ERROR("Failed to execute tasklist for '{}': {}", image_name, ec.message());
+    SPDLOG_ERROR("Failed to execute tasklist for '{}': {}", image_name,
+                 ec.message());
     return pids;
   }
 
@@ -60,9 +64,10 @@ std::vector<int> find_module_pids(const std::string &module_name) {
   }
 
   std::string line;
-  const int self_pid = static_cast<int>(boost::process::v1::detail::windows::get_id());
+  const int self_pid =
+      static_cast<int>(boost::process::v1::detail::windows::get_id());
   while (std::getline(output, line)) {
-    if (line.empty() || line.find("No tasks are running") != std::string::npos) {
+    if (line.empty() || line.front() != '"') {
       continue;
     }
 
@@ -80,7 +85,8 @@ std::vector<int> find_module_pids(const std::string &module_name) {
       continue;
     }
 
-    const int pid = std::atoi(line.substr(pid_start + 1, pid_end - pid_start - 1).c_str());
+    const int pid =
+        std::atoi(line.substr(pid_start + 1, pid_end - pid_start - 1).c_str());
     if (pid > 0 && pid != self_pid) {
       pids.push_back(pid);
     }
@@ -89,9 +95,11 @@ std::vector<int> find_module_pids(const std::string &module_name) {
   bp::ipstream output;
   std::error_code ec;
 
-  bp::child query(bp::search_path("pgrep"), "-x", process_name, bp::std_out > output, bp::std_err > bp::null, ec);
+  bp::child query(bp::search_path("pgrep"), "-x", process_name,
+                  bp::std_out > output, bp::std_err > bp::null, ec);
   if (ec) {
-    SPDLOG_ERROR("Failed to execute pgrep for '{}': {}", process_name, ec.message());
+    SPDLOG_ERROR("Failed to execute pgrep for '{}': {}", process_name,
+                 ec.message());
     return pids;
   }
 
@@ -101,7 +109,8 @@ std::vector<int> find_module_pids(const std::string &module_name) {
   }
 
   std::string line;
-  const int self_pid = static_cast<int>(boost::process::v1::detail::posix::get_id());
+  const int self_pid =
+      static_cast<int>(boost::process::v1::detail::posix::get_id());
   while (std::getline(output, line)) {
     if (line.empty()) {
       continue;
@@ -118,6 +127,7 @@ std::vector<int> find_module_pids(const std::string &module_name) {
 }
 
 bool send_signal(int pid, const std::string &signal) {
+  std::error_code ec;
 #ifdef _WIN32
   std::vector<std::string> args;
   args.push_back("/PID");
@@ -126,39 +136,54 @@ bool send_signal(int pid, const std::string &signal) {
   if (signal == "-KILL") {
     args.push_back("/F");
   }
-  const int rc = bp::system(bp::search_path("taskkill"), bp::args(args), bp::std_out > bp::null, bp::std_err > bp::null);
+  const int rc = bp::system(bp::search_path("taskkill"), bp::args(args),
+                            bp::std_out > bp::null, bp::std_err > bp::null, ec);
+  if (ec)
+    return false;
   return rc == 0;
 #else
-  const int rc = bp::system(bp::search_path("kill"), signal, std::to_string(pid), bp::std_out > bp::null, bp::std_err > bp::null);
+  const int rc =
+      bp::system(bp::search_path("kill"), signal, std::to_string(pid),
+                 bp::std_out > bp::null, bp::std_err > bp::null, ec);
+  if (ec)
+    return false;
   return rc == 0;
 #endif
 }
 
 bool is_process_alive(int pid) {
+  std::error_code ec;
 #ifdef _WIN32
   bp::ipstream output;
   std::string pid_filter = "PID eq " + std::to_string(pid);
-  const int rc = bp::system(bp::search_path("tasklist"), "/FO", "CSV", "/NH", "/FI", pid_filter, bp::std_out > output, bp::std_err > bp::null);
-  if (rc != 0) {
+  const int rc =
+      bp::system(bp::search_path("tasklist"), "/FO", "CSV", "/NH", "/FI",
+                 pid_filter, bp::std_out > output, bp::std_err > bp::null, ec);
+  if (ec || rc != 0) {
     return false;
   }
   std::string line;
   while (std::getline(output, line)) {
-    if (!line.empty() && line.find("No tasks are running") == std::string::npos) {
+    if (!line.empty() && line.front() == '"') {
       return true;
     }
   }
   return false;
 #else
-  const int rc = bp::system(bp::search_path("kill"), "-0", std::to_string(pid), bp::std_out > bp::null, bp::std_err > bp::null);
+  const int rc = bp::system(bp::search_path("kill"), "-0", std::to_string(pid),
+                            bp::std_out > bp::null, bp::std_err > bp::null, ec);
+  if (ec)
+    return false;
   return rc == 0;
 #endif
 }
 
-bool start_module(const std::string &module_name, const std::vector<std::string> &extra_args) {
+bool start_module(const std::string &module_name,
+                  const std::vector<std::string> &extra_args) {
   const std::string executable = resolve_module_binary(module_name);
   std::error_code ec;
-  bp::child proc(executable, bp::args(extra_args), bp::std_out > bp::null, bp::std_err > bp::null, ec);
+  bp::child proc(executable, bp::args(extra_args), bp::std_out > bp::null,
+                 bp::std_err > bp::null, ec);
   if (ec) {
     SPDLOG_ERROR("Failed to start module '{}': {}", module_name, ec.message());
     return false;
@@ -210,20 +235,33 @@ bool stop_module(const std::string &module_name) {
 }
 
 void print_usage(const char *program_name) {
-  std::cout << "Usage: " << program_name
-            << " <module_name> <command> <magicnum> [extra_args...]\n"
-               "Commands: start | stop | preinst | postinst | preun | postun"
+  std::cout << "Usage: \n"
+            << "  " << program_name << " <module_name> <command> <magicnum> [extra_args...]\n"
+            << "  " << program_name << " generate_token\n"
+            << "Commands: start | stop | preinst | postinst | preun | postun"
             << std::endl;
+}
+
+std::string generate_current_token() {
+  const std::string salt = "4c61a9e9-bd52-40c8-91d3-5d37776e687d";
+  const long long window_size = 60;
+  const auto now_sec = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+  const long long current_window = now_sec / window_size;
+  return sha256_hex(std::to_string(current_window) + ":" + salt);
 }
 
 bool verify_token(const std::string &user_token) {
   const std::string salt = "4c61a9e9-bd52-40c8-91d3-5d37776e687d";
   const long long window_size = 60;
 
-  const auto now_sec = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+  const auto now_sec = std::chrono::duration_cast<std::chrono::seconds>(
+                           std::chrono::system_clock::now().time_since_epoch())
+                           .count();
   const long long current_window = now_sec / window_size;
 
-  const auto check = [&](long long win) { return user_token == sha256_hex(std::to_string(win) + ":" + salt); };
+  const auto check = [&](long long win) {
+    return user_token == sha256_hex(std::to_string(win) + ":" + salt);
+  };
 
   return check(current_window) || check(current_window - 1);
 }
@@ -231,8 +269,12 @@ bool verify_token(const std::string &user_token) {
 bool handle_commands(const std::string &module_name, const std::string &command,
                      const std::vector<std::string> &extra_args) {
   static const std::unordered_map<std::string, std::string> cmd_desc = {
-      {"start", "Start module"},   {"stop", "Stop module"},         {"preinst", "Run pre-install actions"},
-      {"postinst", "Run post-install actions"}, {"preun", "Run pre-uninstall actions"}, {"postun", "Run post-uninstall actions"}};
+      {"start", "Start module"},
+      {"stop", "Stop module"},
+      {"preinst", "Run pre-install actions"},
+      {"postinst", "Run post-install actions"},
+      {"preun", "Run pre-uninstall actions"},
+      {"postun", "Run post-uninstall actions"}};
 
   const auto it = cmd_desc.find(command);
   if (it == cmd_desc.end()) {
@@ -248,7 +290,8 @@ bool handle_commands(const std::string &module_name, const std::string &command,
     return stop_module(module_name);
   }
 
-  SPDLOG_INFO("{}: {} (Args count: {})", it->second, module_name, extra_args.size());
+  SPDLOG_INFO("{}: {} (Args count: {})", it->second, module_name,
+              extra_args.size());
   return true;
 }
 
@@ -257,6 +300,11 @@ bool handle_commands(const std::string &module_name, const std::string &command,
 int main(int argc, char *argv[]) {
   MYLOG_RESET("moduleCli.log", 1024 * 1024, 3);
   MYLOG_LOG_LEVEL("debug");
+
+  if (argc == 2 && std::string(argv[1]) == "generate_token") {
+    std::cout << generate_current_token() << std::endl;
+    return 0;
+  }
 
   // 1. 基础校验 (必须包含 module_name command magicnum)
   if (argc < 4) {
