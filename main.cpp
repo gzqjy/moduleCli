@@ -29,6 +29,9 @@
 
 namespace {
 namespace bp = boost::process;
+constexpr const char* kTokenSalt = "4c61a9e9-bd52-40c8-91d3-5d37776e687d";
+constexpr long long kTokenWindowSize = 60 * 60;
+const std::vector<std::string> kBackupFiles = {"diskStat.json", "globalconfig.db", "hostEnv.json"};
 
 std::string sha256_hex(const std::string& input) {
     return picosha2::hash256_hex_string(input);
@@ -40,7 +43,7 @@ std::string basename_of(const std::string& path) {
 }
 
 std::string resolve_module_binary(const std::string& module_name) {
-    if (module_name.find('/') != std::string::npos) {
+    if (module_name.find_first_of("/\\") != std::string::npos) {
         return module_name;
     }
 
@@ -97,7 +100,13 @@ std::vector<int> find_module_pids(const std::string& module_name) {
             continue;
         }
 
-        const int pid = std::atoi(line.c_str());
+        char* end = nullptr;
+        const long parsed = std::strtol(line.c_str(), &end, 10);
+        if (end == line.c_str() || *end != '\0') {
+            continue;
+        }
+
+        const int pid = static_cast<int>(parsed);
         if (pid > 0 && pid != self_pid) {
             pids.push_back(pid);
         }
@@ -203,6 +212,13 @@ bool stop_module(const std::string& module_name) {
                 all_stopped = false;
                 continue;
             }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            if (is_process_alive(pid)) {
+                SPDLOG_ERROR("Process pid {} is still alive after SIGKILL", pid);
+                all_stopped = false;
+                continue;
+            }
         }
 
         SPDLOG_INFO("Stopped module '{}' process pid {}", module_name, pid);
@@ -219,23 +235,18 @@ void print_usage(const char* program_name) {
 }
 
 std::string generate_current_token() {
-    const std::string salt = "4c61a9e9-bd52-40c8-91d3-5d37776e687d";
-    const long long window_size = 60 * 60;
     const auto now_sec =
         std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    const long long current_window = now_sec / window_size;
-    return sha256_hex(std::to_string(current_window) + ":" + salt);
+    const long long current_window = now_sec / kTokenWindowSize;
+    return sha256_hex(std::to_string(current_window) + ":" + kTokenSalt);
 }
 
 bool verify_token(const std::string& user_token) {
-    const std::string salt = "4c61a9e9-bd52-40c8-91d3-5d37776e687d";
-    const long long window_size = 60 * 60;
-
     const auto now_sec =
         std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    const long long current_window = now_sec / window_size;
+    const long long current_window = now_sec / kTokenWindowSize;
 
-    const auto check = [&](long long win) { return user_token == sha256_hex(std::to_string(win) + ":" + salt); };
+    const auto check = [&](long long win) { return user_token == sha256_hex(std::to_string(win) + ":" + kTokenSalt); };
 
     return check(current_window) || check(current_window - 1);
 }
@@ -253,8 +264,7 @@ bool backup_files(const std::string& module_name) {
         }
     }
 
-    const std::vector<std::string> files = {"diskStat.json", "globalconfig.db", "hostEnv.json"};
-    for (const auto& file : files) {
+    for (const auto& file : kBackupFiles) {
         fs::path src = fs::current_path() / file;
         fs::path dst = backup_dir / file;
         if (fs::exists(src)) {
@@ -273,8 +283,7 @@ bool restore_files(const std::string& module_name) {
     namespace fs = boost::filesystem;
     fs::path backup_dir = fs::temp_directory_path() / ("moduleCli_backup_" + basename_of(module_name));
 
-    const std::vector<std::string> files = {"diskStat.json", "globalconfig.db", "hostEnv.json"};
-    for (const auto& file : files) {
+    for (const auto& file : kBackupFiles) {
         fs::path src = backup_dir / file;
         fs::path dst = fs::current_path() / file;
         if (fs::exists(src)) {
@@ -367,6 +376,7 @@ int main(int argc, char* argv[]) {
 
     // 3. 提取剩余的 arg1, arg2...
     std::vector<std::string> extra_args;
+    extra_args.reserve(argc > 4 ? argc - 4 : 0);
     for (int i = 4; i < argc; ++i) {
         extra_args.push_back(argv[i]);
     }
