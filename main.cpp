@@ -22,6 +22,11 @@
 
 #include <boost/process/v1/detail/posix/environment.hpp>
 #include <cerrno>
+#include <dirent.h>
+#include <unistd.h>
+#include <fstream>
+#include <cstring>
+#include <cctype>
 #endif
 
 #include "logger.h"
@@ -31,7 +36,7 @@ namespace {
 namespace bp = boost::process;
 constexpr const char* kTokenSalt = "4c61a9e9-bd52-40c8-91d3-5d37776e687d";
 constexpr long long kTokenWindowSize = 60 * 60;
-const std::vector<std::string> kBackupFiles = {"diskStat.json", "globalconfig.db", "hostEnv.json"};
+const std::vector<const char*> kBackupFiles = {"diskStat.json", "globalconfig.db", "hostEnv.json"};
 
 std::string sha256_hex(const std::string& input) {
     return picosha2::hash256_hex_string(input);
@@ -40,6 +45,23 @@ std::string sha256_hex(const std::string& input) {
 std::string basename_of(const std::string& path) {
     const std::size_t pos = path.find_last_of("/\\");
     return pos == std::string::npos ? path : path.substr(pos + 1);
+}
+
+std::string get_executable_dir() {
+#ifdef _WIN32
+    char path[MAX_PATH];
+    GetModuleFileNameA(NULL, path, MAX_PATH);
+    std::string full_path(path);
+    return full_path.substr(0, full_path.find_last_of("\\/"));
+#else
+    char path[4096];
+    ssize_t count = readlink("/proc/self/exe", path, sizeof(path));
+    if (count != -1) {
+        std::string full_path(path, count);
+        return full_path.substr(0, full_path.find_last_of("/"));
+    }
+    return ".";
+#endif
 }
 
 std::string resolve_module_binary(const std::string& module_name) {
@@ -79,38 +101,28 @@ std::vector<int> find_module_pids(const std::string& module_name) {
         CloseHandle(hSnapshot);
     }
 #else
-    bp::ipstream output;
-    std::error_code ec;
+    DIR* dp = opendir("/proc");
+    if (!dp) return pids;
 
-    bp::child query(bp::search_path("pgrep"), "-x", process_name, bp::std_out > output, bp::std_err > bp::null, ec);
-    if (ec) {
-        SPDLOG_ERROR("Failed to execute pgrep for '{}': {}", process_name, ec.message());
-        return pids;
-    }
+    const pid_t self_pid = getpid();
+    struct dirent* dirp;
+    while ((dirp = readdir(dp)) != nullptr) {
+        if (!isdigit(dirp->d_name[0])) continue;
 
-    query.wait();
-    if (query.exit_code() != 0) {
-        return pids;
-    }
+        int pid = std::atoi(dirp->d_name);
+        if (pid == self_pid) continue;
 
-    std::string line;
-    const int self_pid = static_cast<int>(boost::process::v1::detail::posix::get_id());
-    while (std::getline(output, line)) {
-        if (line.empty()) {
-            continue;
-        }
-
-        char* end = nullptr;
-        const long parsed = std::strtol(line.c_str(), &end, 10);
-        if (end == line.c_str() || *end != '\0') {
-            continue;
-        }
-
-        const int pid = static_cast<int>(parsed);
-        if (pid > 0 && pid != self_pid) {
-            pids.push_back(pid);
+        std::string comm_path = std::string("/proc/") + dirp->d_name + "/comm";
+        std::ifstream comm_file(comm_path);
+        if (comm_file.is_open()) {
+            std::string comm_name;
+            std::getline(comm_file, comm_name);
+            if (comm_name == process_name) {
+                pids.push_back(pid);
+            }
         }
     }
+    closedir(dp);
 #endif
 
     return pids;
@@ -159,6 +171,19 @@ bool is_process_alive(int pid) {
     return ret == WAIT_TIMEOUT;
 #else
     if (kill(pid, 0) == 0) {
+        std::string stat_path = std::string("/proc/") + std::to_string(pid) + "/stat";
+        std::ifstream stat_file(stat_path);
+        if (stat_file.is_open()) {
+            std::string line;
+            std::getline(stat_file, line);
+            size_t rparen_pos = line.find_last_of(')');
+            if (rparen_pos != std::string::npos && rparen_pos + 2 < line.size()) {
+                char state = line[rparen_pos + 2];
+                if (state == 'Z') {
+                    return false;
+                }
+            }
+        }
         return true;
     }
     return errno == EPERM;
@@ -253,7 +278,7 @@ bool verify_token(const std::string& user_token) {
 
 bool backup_files(const std::string& module_name) {
     namespace fs = boost::filesystem;
-    fs::path backup_dir = fs::temp_directory_path() / ("moduleCli_backup_" + basename_of(module_name));
+    fs::path backup_dir = fs::path(get_executable_dir()) / "backup" / basename_of(module_name);
 
     boost::system::error_code ec;
     if (!fs::exists(backup_dir)) {
@@ -265,7 +290,7 @@ bool backup_files(const std::string& module_name) {
     }
 
     for (const auto& file : kBackupFiles) {
-        fs::path src = fs::current_path() / file;
+        fs::path src = fs::path(get_executable_dir()) / file;
         fs::path dst = backup_dir / file;
         if (fs::exists(src)) {
             fs::copy_file(src, dst, fs::copy_options::overwrite_existing, ec);
@@ -281,11 +306,11 @@ bool backup_files(const std::string& module_name) {
 
 bool restore_files(const std::string& module_name) {
     namespace fs = boost::filesystem;
-    fs::path backup_dir = fs::temp_directory_path() / ("moduleCli_backup_" + basename_of(module_name));
+    fs::path backup_dir = fs::path(get_executable_dir()) / "backup" / basename_of(module_name);
 
     for (const auto& file : kBackupFiles) {
         fs::path src = backup_dir / file;
-        fs::path dst = fs::current_path() / file;
+        fs::path dst = fs::path(get_executable_dir()) / file;
         if (fs::exists(src)) {
             boost::system::error_code ec;
             fs::copy_file(src, dst, fs::copy_options::overwrite_existing, ec);
@@ -355,7 +380,8 @@ int main(int argc, char* argv[]) {
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);  // 将控制台设置为 UTF-8 模式
 #endif
-    MYLOG_RESET("moduleCli.log", 1024 * 1024, 3);
+    std::string log_file = get_executable_dir() + "/moduleCli.log";
+    MYLOG_RESET(log_file, 1024 * 1024, 3);
     MYLOG_LOG_LEVEL("debug");
 
     if (argc == 2 && std::string(argv[1]) == "generate_token") {
