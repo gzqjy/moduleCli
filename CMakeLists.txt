@@ -40,15 +40,8 @@ endif ()
 
 find_package(Boost 1.87.0 REQUIRED COMPONENTS
         filesystem
-        system
-        thread
-        date_time
-        program_options
         process
-        json
 )
-
-find_package(Boost REQUIRED)
 
 add_executable(moduleCli main.cpp)
 target_include_directories(moduleCli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
