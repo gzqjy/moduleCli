@@ -25,9 +25,6 @@
 
 namespace bp = boost::process;
 
-namespace {
-const std::vector<const char*> kBackupFiles = {"diskStat.json", "globalconfig.db", "hostEnv.json"};
-}
 
 std::vector<int> ModuleHandler::find_module_pids() const {
     std::vector<int> pids;
@@ -213,6 +210,9 @@ bool ModuleHandler::stop() {
 }
 
 bool ModuleHandler::backup_files() const {
+    auto files_to_backup = get_backup_files();
+    if (files_to_backup.empty()) return true;
+
     namespace fs = boost::filesystem;
     fs::path backup_dir = fs::path(get_executable_dir()) / "backup" / basename_of(module_name);
 
@@ -225,7 +225,7 @@ bool ModuleHandler::backup_files() const {
         }
     }
 
-    for (const auto& file : kBackupFiles) {
+    for (const auto& file : files_to_backup) {
         fs::path src = fs::path(get_executable_dir()) / file;
         fs::path dst = backup_dir / file;
         if (fs::exists(src)) {
@@ -241,10 +241,13 @@ bool ModuleHandler::backup_files() const {
 }
 
 bool ModuleHandler::restore_files() const {
+    auto files_to_restore = get_backup_files();
+    if (files_to_restore.empty()) return true;
+
     namespace fs = boost::filesystem;
     fs::path backup_dir = fs::path(get_executable_dir()) / "backup" / basename_of(module_name);
 
-    for (const auto& file : kBackupFiles) {
+    for (const auto& file : files_to_restore) {
         fs::path src = backup_dir / file;
         fs::path dst = fs::path(get_executable_dir()) / file;
         if (fs::exists(src)) {
@@ -261,9 +264,14 @@ bool ModuleHandler::restore_files() const {
 }
 
 bool ModuleHandler::recover_hardware() const {
-    SPDLOG_INFO("Executing default hardware recovery operations for module '{}'", module_name);
-    // TODO: Implement specific hardware device recovery logic here.
+    // Default handler does nothing for hardware recovery.
+    // Derived classes (like MediumManagerHandler) can override this.
     return true;
+}
+
+std::vector<std::string> ModuleHandler::get_backup_files() const {
+    // Return empty list by default, let specific modules override
+    return {};
 }
 
 bool ModuleHandler::preinst() {

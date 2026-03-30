@@ -5,7 +5,6 @@ class MediumManagerHandler : public ModuleHandler {
 public:
     using ModuleHandler::ModuleHandler;
 
-    // We can override specific operations for MediumManager here.
-    // bool stop() override;
-    // bool recover_hardware() const override;
+    bool recover_hardware() const override;
+    std::vector<std::string> get_backup_files() const override;
 };

@@ -14,6 +14,7 @@ protected:
     bool backup_files() const;
     bool restore_files() const;
     virtual bool recover_hardware() const;
+    virtual std::vector<std::string> get_backup_files() const;
 
 public:
     explicit ModuleHandler(const std::string& name) : module_name(name) {}
