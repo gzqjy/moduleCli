@@ -47,8 +47,8 @@ add_executable(moduleCli
     main.cpp 
     utils.cpp 
     ModuleHandler.cpp 
-    MediaControlHandler.cpp 
-    UserProfileHandler.cpp 
+    MediumManagerHandler.cpp 
+    PluginManagerHandler.cpp 
     ModuleFactory.cpp
 )
 target_include_directories(moduleCli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

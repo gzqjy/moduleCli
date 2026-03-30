@@ -1,7 +1,7 @@
 #pragma once
 #include "ModuleHandler.h"
 
-class UserProfileHandler : public ModuleHandler {
+class PluginManagerHandler : public ModuleHandler {
 public:
     using ModuleHandler::ModuleHandler;
 };

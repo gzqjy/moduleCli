@@ -1,14 +1,14 @@
 #include "ModuleFactory.h"
-#include "MediaControlHandler.h"
-#include "UserProfileHandler.h"
+#include "MediumManagerHandler.h"
+#include "PluginManagerHandler.h"
 
 std::unique_ptr<ModuleHandler> create_module_handler(const std::string& module_name) {
-    if (module_name.find("media") != std::string::npos || module_name.find("device") != std::string::npos) {
-        return std::unique_ptr<ModuleHandler>(new MediaControlHandler(module_name));
+    if (module_name == "MediumManager") {
+        return std::unique_ptr<ModuleHandler>(new MediumManagerHandler(module_name));
     }
     
-    if (module_name.find("persona") != std::string::npos || module_name.find("profile") != std::string::npos) {
-        return std::unique_ptr<ModuleHandler>(new UserProfileHandler(module_name));
+    if (module_name == "PluginManager") {
+        return std::unique_ptr<ModuleHandler>(new PluginManagerHandler(module_name));
     }
 
     // Default handler for all other modules
