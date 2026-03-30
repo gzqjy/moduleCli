@@ -43,7 +43,14 @@ find_package(Boost 1.87.0 REQUIRED COMPONENTS
         process
 )
 
-add_executable(moduleCli main.cpp)
+add_executable(moduleCli 
+    main.cpp 
+    utils.cpp 
+    ModuleHandler.cpp 
+    MediaControlHandler.cpp 
+    UserProfileHandler.cpp 
+    ModuleFactory.cpp
+)
 target_include_directories(moduleCli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(moduleCli PRIVATE ${Boost_INCLUDE_DIRS})
 # 3. 显式链接（这会告诉 CMake 去找具体的库）
