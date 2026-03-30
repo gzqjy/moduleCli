@@ -190,7 +190,8 @@ bool is_process_alive(int pid) {
 #endif
 }
 
-bool start_module(const std::string& module_name, const std::vector<std::string>& extra_args) {
+bool start_module(const std::vector<std::string>& extra_args) {
+    const std::string module_name = extra_args.empty() ? "" : extra_args.front();
     const std::string executable = resolve_module_binary(module_name);
     std::error_code ec;
     bp::child proc(executable, bp::args(extra_args), bp::std_out > bp::null,
@@ -254,7 +255,7 @@ bool stop_module(const std::string& module_name) {
 
 void print_usage(const char* program_name) {
     std::cout << "Usage: \n"
-              << "  " << program_name << " <module_name> <command> <magicnum> [extra_args...]\n"
+              << "  " << program_name << " <command> <magicnum> <module_name> [extra_args...]\n"
               << "  " << program_name << " generate_token\n"
               << "Commands: start | stop | preinst | postinst | preun | postun" << std::endl;
 }
@@ -331,8 +332,8 @@ bool recover_hardware(const std::string& module_name) {
     return true;
 }
 
-bool handle_commands(const std::string& module_name, const std::string& command,
-                     const std::vector<std::string>& extra_args) {
+bool handle_commands(const std::string& command, const std::vector<std::string>& extra_args) {
+    const std::string module_name = extra_args.empty() ? "" : extra_args.front();
     static const std::unordered_map<std::string, std::string> cmd_desc = {
         {"start", "Start module"},
         {"stop", "Stop module"},
@@ -348,7 +349,7 @@ bool handle_commands(const std::string& module_name, const std::string& command,
     }
 
     if (command == "start") {
-        return start_module(module_name, extra_args);
+        return start_module(extra_args);
     }
 
     if (command == "stop") {
@@ -389,21 +390,20 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    // 1. 基础校验 (必须包含 module_name command magicnum)
+    // 1. 基础校验 (必须包含 command magicnum module_name)
     if (argc < 4) {
         print_usage(argv[0]);
         return 1;
     }
 
     // 2. 直接提取位置参数
-    std::string module_name = argv[1];
-    std::string command = argv[2];
-    std::string magicnum = argv[3];
+    std::string command = argv[1];
+    std::string magicnum = argv[2];
 
     // 3. 提取剩余的 arg1, arg2...
     std::vector<std::string> extra_args;
-    extra_args.reserve(argc > 4 ? argc - 4 : 0);
-    for (int i = 4; i < argc; ++i) {
+    extra_args.reserve(argc - 3);
+    for (int i = 3; i < argc; ++i) {
         extra_args.push_back(argv[i]);
     }
 
@@ -414,7 +414,7 @@ int main(int argc, char* argv[]) {
     }
 
     // 5. 执行命令逻辑
-    if (!handle_commands(module_name, command, extra_args)) {
+    if (!handle_commands(command, extra_args)) {
         return 3;
     }
 
