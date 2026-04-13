@@ -38,7 +38,7 @@ if (POLICY CMP0144)
     cmake_policy(SET CMP0144 NEW)
 endif ()
 
-find_package(Boost 1.87.0 REQUIRED COMPONENTS
+find_package(Boost 1.87.0 CONFIG REQUIRED COMPONENTS
         filesystem
         process
 )
@@ -55,3 +55,4 @@ target_include_directories(moduleCli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(moduleCli PRIVATE ${Boost_INCLUDE_DIRS})
 # 3. 显式链接（这会告诉 CMake 去找具体的库）
 target_link_libraries(moduleCli PRIVATE Boost::filesystem Boost::process)
+install(TARGETS moduleCli DESTINATION bin)

@@ -1,0 +1,20 @@
+CompileFlags:
+  # 调整编译器参数以修复 clangd 针对 MSVC 平台和标准库解析崩溃的问题
+  Add: 
+    - "--target=x86_64-pc-windows-msvc" # 告诉 clangd 模拟 MSVC 环境
+    - "-std=c++14" # 必须至少使用 c++14 来解析现代 MSVC 和 Boost 头文件 (即使你的 CMake 配置为 11)
+    - "-D_WIN32"
+    - "-D_WIN32_WINNT=0x0601"
+    - "-DUNICODE"
+    - "-D_UNICODE"
+    - "-ID:/boost_1_87_0"
+    - "-fms-compatibility"
+    - "-fms-extensions"
+    - "-fdelayed-template-parsing"
+
+Diagnostics:
+  # 如果前面的配置正确，不需要粗暴屏蔽所有错误。我们保留警告屏蔽。
+  ; ClangTidy:
+  ;   Remove: "*"
+
+CompileCommandsDir: "build"

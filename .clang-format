@@ -1,0 +1,7 @@
+# 针对底层 C++ 开发的推荐配置
+Language: Cpp
+BasedOnStyle: Google
+IndentWidth: 4
+ColumnLimit: 120
+PointerAlignment: Left  # 让 void* ptr 看起来更直观
+AllowShortFunctionsOnASingleLine: None

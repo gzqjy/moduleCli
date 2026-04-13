@@ -1,0 +1,6 @@
+build/
+build-*/
+moduleCli-*/
+*.zip
+*.exe
+*.log
