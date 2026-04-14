@@ -38,21 +38,33 @@ if (POLICY CMP0144)
     cmake_policy(SET CMP0144 NEW)
 endif ()
 
-find_package(Boost 1.87.0 CONFIG REQUIRED COMPONENTS
-        filesystem
-        process
-)
+if(ARCH_NAME STREQUAL "loongarch64")
+    find_package(Boost 1.87.0 CONFIG REQUIRED COMPONENTS
+            filesystem
+            process
+            context
+    )
+else ()
+    find_package(Boost 1.87.0 CONFIG REQUIRED COMPONENTS
+            filesystem
+            process
+    )
+endif ()
 
 add_executable(moduleCli 
     main.cpp 
     utils.cpp 
     ModuleHandler.cpp 
-    MediaControlHandler.cpp 
-    UserProfileHandler.cpp 
+    ManagerManagerHandler.cpp 
+    PluginLoaderHandler.cpp 
     ModuleFactory.cpp
 )
 target_include_directories(moduleCli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(moduleCli PRIVATE ${Boost_INCLUDE_DIRS})
 # 3. 显式链接（这会告诉 CMake 去找具体的库）
-target_link_libraries(moduleCli PRIVATE Boost::filesystem Boost::process)
+if(ARCH_NAME STREQUAL "loongarch64")
+    target_link_libraries(moduleCli PRIVATE Boost::filesystem Boost::process Boost::context)
+else ()
+    target_link_libraries(moduleCli PRIVATE Boost::filesystem Boost::process)
+endif ()
 install(TARGETS moduleCli DESTINATION bin)

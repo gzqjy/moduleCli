@@ -105,13 +105,15 @@ elif [ "$ARCH" == "arm64" ]; then
 #    cp /usr/lib/aarch64-linux-gnu/lib/libsqlite3.so.0 $basepath/output-$ARCH/bin/lib
 #    cp /usr/lib/aarch64-linux-gnu/lib/libudev.so.1 $basepath/output-$ARCH/bin/lib
 elif [ "$ARCH" == "loongarch64" ]; then
-#    cp /opt/boost_1_87_0/lib/libboost_system.so.1.87.0 $basepath/output-$ARCH/bin/lib
+    cp /opt/boost_1_87_0/lib/libboost_system.so.1.87.0 $basepath/output-$ARCH/bin/lib
     cp /opt/boost_1_87_0/lib/libboost_filesystem.so.1.87.0 $basepath/output-$ARCH/bin/lib
-#    cp /opt/boost_1_87_0/lib/libboost_date_time.so.1.87.0 $basepath/output-$ARCH/bin/lib
+    cp /opt/boost_1_87_0/lib/libboost_process.so.1.87.0 $basepath/output-$ARCH/bin/lib
+    cp /opt/boost_1_87_0/lib/libboost_date_time.so.1.87.0 $basepath/output-$ARCH/bin/lib
+    cp /opt/boost_1_87_0/lib/libboost_context.so.1.87.0 $basepath/output-$ARCH/bin/lib
 #    cp /opt/boost_1_87_0/lib/libboost_json.so.1.87.0 $basepath/output-$ARCH/bin/lib
 #    cp /opt/boost_1_87_0/lib/libboost_thread.so.1.87.0 $basepath/output-$ARCH/bin/lib
 #    cp /opt/boost_1_87_0/lib/libboost_program_options.so.1.87.0 $basepath/output-$ARCH/bin/lib
-#    cp /opt/boost_1_87_0/lib/libboost_atomic.so.1.87.0 $basepath/output-$ARCH/bin/lib
+    cp /opt/boost_1_87_0/lib/libboost_atomic.so.1.87.0 $basepath/output-$ARCH/bin/lib
 #    cp /opt/boost_1_87_0/lib/libboost_container.so.1.87.0 $basepath/output-$ARCH/bin/lib
 #    cp $basepath/output-$ARCH/lib/libhv.so $basepath/output-$ARCH/bin/lib
     rm -rf $basepath/output-$ARCH/lib
@@ -127,5 +129,6 @@ elif [ "$ARCH" == "loongarch64" ]; then
 #    cp /usr/lib/aarch64-linux-gnu/lib/libudev.so.1 $basepath/output-$ARCH/bin/lib
 fi
 #cp $basepath/out
+
 tar czvf $basepath/moduleCli-${BUILD_NUM}-$ARCH.tar.gz -C $basepath/output-$ARCH .
 popd

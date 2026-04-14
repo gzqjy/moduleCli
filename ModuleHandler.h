@@ -11,8 +11,9 @@ protected:
     std::vector<int> find_module_pids() const;
     bool send_signal(int pid, const std::string& signal) const;
     bool is_process_alive(int pid) const;
-    bool backup_files() const;
-    bool restore_files() const;
+    virtual std::vector<std::string> get_backup_files() const;
+    virtual bool backup_files() const;
+    virtual bool restore_files() const;
     virtual bool recover_hardware() const;
 
 public:

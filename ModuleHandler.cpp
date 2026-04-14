@@ -25,10 +25,6 @@
 
 namespace bp = boost::process;
 
-namespace {
-const std::vector<const char*> kBackupFiles = {"diskStat.json", "globalconfig.db", "hostEnv.json"};
-}
-
 std::vector<int> ModuleHandler::find_module_pids() const {
     std::vector<int> pids;
     const std::string process_name = basename_of(module_name);
@@ -212,7 +208,14 @@ bool ModuleHandler::stop() {
     return all_stopped;
 }
 
+std::vector<std::string> ModuleHandler::get_backup_files() const {
+    return {};
+}
+
 bool ModuleHandler::backup_files() const {
+    std::vector<std::string> files = get_backup_files();
+    if (files.empty()) return true;
+
     namespace fs = boost::filesystem;
     fs::path backup_dir = fs::path(get_executable_dir()) / "backup" / basename_of(module_name);
 
@@ -225,7 +228,7 @@ bool ModuleHandler::backup_files() const {
         }
     }
 
-    for (const auto& file : kBackupFiles) {
+    for (const auto& file : files) {
         fs::path src = fs::path(get_executable_dir()) / file;
         fs::path dst = backup_dir / file;
         if (fs::exists(src)) {
@@ -241,10 +244,13 @@ bool ModuleHandler::backup_files() const {
 }
 
 bool ModuleHandler::restore_files() const {
+    std::vector<std::string> files = get_backup_files();
+    if (files.empty()) return true;
+
     namespace fs = boost::filesystem;
     fs::path backup_dir = fs::path(get_executable_dir()) / "backup" / basename_of(module_name);
 
-    for (const auto& file : kBackupFiles) {
+    for (const auto& file : files) {
         fs::path src = backup_dir / file;
         fs::path dst = fs::path(get_executable_dir()) / file;
         if (fs::exists(src)) {
