@@ -1,14 +1,16 @@
 #include "ModuleHandler.h"
-#include "utils.h"
-#include "logger.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/process.hpp>
 #include <boost/process/v1.hpp>
-#include <chrono>
-#include <thread>
-#include <fstream>
 #include <cctype>
+#include <chrono>
+#include <fstream>
+#include <thread>
+
+#include "logger.h"
+#include "nlohmann_json.hpp"
+#include "utils.h"
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -17,10 +19,12 @@
 #include <tlhelp32.h>
 #include <windows.h>
 #else
-#include <signal.h>
 #include <dirent.h>
+#include <signal.h>
 #include <unistd.h>
+
 #include <cstring>
+
 #endif
 
 namespace bp = boost::process;
@@ -146,57 +150,56 @@ bool ModuleHandler::start(const std::vector<std::string>& extra_args) {
     const std::string executable = resolve_module_binary(module_name);
     std::error_code ec;
     // try {
-        // 1️⃣ 继承当前进程环境
-//         bp::environment env = boost::this_process::environment();
-//
-//         // 2️⃣ 构造 PATH 追加内容
-// #ifdef _WIN32
-//         const std::string sep = ";";
-//         const std::string custom_path = "C:\\myapp\\bin";
-// #else
-//         const std::string sep = ":";
-//         const std::string custom_path = "/opt/myapp/bin";
-// #endif
-//
-//         // 3️⃣ 处理 PATH（不存在时初始化）
-//         if (env.find("PATH") != env.end()) {
-//             std::string old_path = env["PATH"].to_string();
-//             env["PATH"] = old_path + sep + custom_path;
-//         } else {
-//             env["PATH"] = custom_path;
-//         }
-//
-//         // 4️⃣ 启动子进程
-//         bp::child proc(
-//             executable,
-//             bp::args(extra_args),
-//             env,  // 👈 注入环境变量
-//             bp::std_out > bp::null,
-//             bp::std_err > bp::null,
-//             ec
-//         );
-//
-//         if (ec) {
-//             SPDLOG_ERROR("Failed to start module '{}': {}", module_name, ec.message());
-//             return false;
-//         }
-//
-//         const int pid = static_cast<int>(proc.id());
-//
-//         // 5️⃣ 脱离子进程
-//         proc.detach();
-//
-//         SPDLOG_INFO("Started module '{}' with pid {}", module_name, pid);
-//
-//         return true;
-//
-//     } catch (const std::exception& e) {
-//         SPDLOG_ERROR("Exception while starting module '{}': {}", module_name, e.what());
-//         return false;
-//     }
+    // 1️⃣ 继承当前进程环境
+    //         bp::environment env = boost::this_process::environment();
+    //
+    //         // 2️⃣ 构造 PATH 追加内容
+    // #ifdef _WIN32
+    //         const std::string sep = ";";
+    //         const std::string custom_path = "C:\\myapp\\bin";
+    // #else
+    //         const std::string sep = ":";
+    //         const std::string custom_path = "/opt/myapp/bin";
+    // #endif
+    //
+    //         // 3️⃣ 处理 PATH（不存在时初始化）
+    //         if (env.find("PATH") != env.end()) {
+    //             std::string old_path = env["PATH"].to_string();
+    //             env["PATH"] = old_path + sep + custom_path;
+    //         } else {
+    //             env["PATH"] = custom_path;
+    //         }
+    //
+    //         // 4️⃣ 启动子进程
+    //         bp::child proc(
+    //             executable,
+    //             bp::args(extra_args),
+    //             env,  // 👈 注入环境变量
+    //             bp::std_out > bp::null,
+    //             bp::std_err > bp::null,
+    //             ec
+    //         );
+    //
+    //         if (ec) {
+    //             SPDLOG_ERROR("Failed to start module '{}': {}", module_name, ec.message());
+    //             return false;
+    //         }
+    //
+    //         const int pid = static_cast<int>(proc.id());
+    //
+    //         // 5️⃣ 脱离子进程
+    //         proc.detach();
+    //
+    //         SPDLOG_INFO("Started module '{}' with pid {}", module_name, pid);
+    //
+    //         return true;
+    //
+    //     } catch (const std::exception& e) {
+    //         SPDLOG_ERROR("Exception while starting module '{}': {}", module_name, e.what());
+    //         return false;
+    //     }
 
-    bp::child proc(executable, bp::args(extra_args), bp::std_out > bp::null,
-                   bp::std_err > bp::null, ec);
+    bp::child proc(executable, bp::args(extra_args), bp::std_out > bp::null, bp::std_err > bp::null, ec);
     if (ec) {
         SPDLOG_ERROR("Failed to start module '{}': {}", module_name, ec.message());
         return false;
@@ -335,5 +338,129 @@ bool ModuleHandler::preun() {
 }
 
 bool ModuleHandler::postun() {
+    return true;
+}
+
+bool ModuleHandler::update_sign() {
+    namespace fs = boost::filesystem;
+    const std::string exe_dir = get_executable_dir();
+    fs::path manifest_path = fs::path(exe_dir) / "manifest.json";
+
+    if (!fs::exists(manifest_path)) {
+        SPDLOG_ERROR("manifest.json not found: {}", manifest_path.string());
+        return false;
+    }
+
+    // 读取文件
+    std::ifstream ifs(manifest_path.string());
+    if (!ifs.is_open()) {
+        SPDLOG_ERROR("Failed to open manifest.json: {}", manifest_path.string());
+        return false;
+    }
+
+    nlohmann::json manifest;
+    try {
+        ifs >> manifest;
+    } catch (const nlohmann::json::parse_error& e) {
+        SPDLOG_ERROR("Failed to parse manifest.json: {}", e.what());
+        return false;
+    }
+    ifs.close();
+
+    if (!manifest.is_array()) {
+        SPDLOG_ERROR("manifest.json root is not an array");
+        return false;
+    }
+
+    bool updated = false;
+    for (auto& item : manifest) {
+        if (!item.is_object()) continue;
+        if (!item.contains("name") || !item.contains("entry") || !item.contains("sign")) continue;
+        if (item["name"].get<std::string>() != module_name) continue;
+
+        const std::string entry = item["entry"].get<std::string>();
+
+        // 确定二进制文件名（尝试 .exe / .dll / 无扩展名 / .so）
+        std::string binary_name;
+#ifdef _WIN32
+        if (fs::exists(fs::path(exe_dir) / (entry + ".exe"))) {
+            binary_name = ".\\" + entry + ".exe";
+        } else if (fs::exists(fs::path(exe_dir) / (entry + ".dll"))) {
+            binary_name = ".\\" + entry + ".dll";
+        } else {
+            SPDLOG_ERROR("Binary not found for entry: {}", entry);
+            continue;
+        }
+#else
+        if (fs::exists(fs::path(exe_dir) / entry)) {
+            binary_name = "./" + entry;
+        } else if (fs::exists(fs::path(exe_dir) / (entry + ".so"))) {
+            binary_name = "./" + entry + ".so";
+        } else {
+            SPDLOG_ERROR("Binary not found for entry: {}", entry);
+            continue;
+        }
+#endif
+
+        // 调用签名脚本
+        bp::ipstream pipe_stream;
+        std::error_code ec;
+
+#ifdef _WIN32
+        std::string sign_script = ".\\" + std::string("sign_file.bat");
+        bp::child proc(bp::search_path("cmd"), "/c", "call", sign_script, binary_name, bp::std_out > pipe_stream,
+                       bp::std_err > bp::null, bp::start_dir(exe_dir), ec);
+#else
+        std::string sign_script = "./" + std::string("sign_file.sh");
+        bp::child proc(sign_script, binary_name, bp::std_out > pipe_stream, bp::std_err > bp::null,
+                       bp::start_dir(exe_dir), ec);
+#endif
+
+        if (ec) {
+            SPDLOG_ERROR("Failed to run sign script for {}: {}", binary_name, ec.message());
+            continue;
+        }
+
+        // 读取签名输出
+        std::string sign_value;
+        std::string line;
+        while (std::getline(pipe_stream, line)) {
+            if (!line.empty()) {
+                sign_value = line;
+            }
+        }
+        proc.wait();
+
+        // 去除尾部空白
+        while (!sign_value.empty() &&
+               (sign_value.back() == '\r' || sign_value.back() == '\n' || sign_value.back() == ' ')) {
+            sign_value.pop_back();
+        }
+
+        if (proc.exit_code() != 0) {
+            SPDLOG_ERROR("sign script failed for {} with exit code {}", binary_name, proc.exit_code());
+            continue;
+        }
+
+        item["sign"] = sign_value;
+        updated = true;
+        SPDLOG_INFO("Updated sign for entry '{}': {}", entry, sign_value);
+    }
+
+    if (!updated) {
+        SPDLOG_ERROR("No matching entries found for module '{}'", module_name);
+        return false;
+    }
+
+    // 写回 manifest.json（缩进2空格）
+    std::ofstream ofs(manifest_path.string());
+    if (!ofs.is_open()) {
+        SPDLOG_ERROR("Failed to write manifest.json");
+        return false;
+    }
+    ofs << manifest.dump(2) << std::endl;
+    ofs.close();
+
+    SPDLOG_INFO("manifest.json updated successfully for module '{}'", module_name);
     return true;
 }

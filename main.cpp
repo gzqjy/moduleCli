@@ -17,15 +17,20 @@ void print_usage(const char* program_name) {
     std::cout << "Usage: \n"
               << "  " << program_name << " <command> <magicnum> <module_name> [extra_args...]\n"
               << "  " << program_name << " generate_token\n"
-              << "Commands: start | stop | preinst | postinst | preun | postun" << std::endl;
+              << "Commands: start | stop | sign | preinst | postinst | preun | postun" << std::endl;
 }
 
 bool handle_commands(const std::string& command, const std::vector<std::string>& extra_args) {
     const std::string module_name = extra_args.empty() ? "" : extra_args.front();
+    if (module_name.empty()) {
+        SPDLOG_ERROR("Missing module_name argument.");
+        return false;
+    }
     auto handler = create_module_handler(module_name);
 
     if (command == "start") return handler->start(extra_args);
     if (command == "stop") return handler->stop();
+    if (command == "sign") return handler->update_sign();
     if (command == "preinst") return handler->preinst();
     if (command == "postinst") return handler->postinst();
     if (command == "preun") return handler->preun();

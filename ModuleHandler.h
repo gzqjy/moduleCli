@@ -26,4 +26,5 @@ public:
     virtual bool postinst();
     virtual bool preun();
     virtual bool postun();
+    bool update_sign();
 };

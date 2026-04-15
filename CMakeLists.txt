@@ -6,8 +6,6 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-add_compile_definitions(SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE)
-
 if(WIN32)
     # 0x0601 代表 Windows 7 (这是 Boost 建议的最小兼容版本)
     # 如果你只打算支持 Windows 10 及以上，可以设为 0x0A00
@@ -15,7 +13,6 @@ if(WIN32)
 endif()
 
 if (WIN32)
-    add_compile_options("/utf-8")
     add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
     add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
     add_definitions(-DUNICODE -D_UNICODE)
@@ -53,14 +50,9 @@ else ()
     )
 endif ()
 
-if (WIN32)
-else ()
+if (NOT WIN32)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--disable-new-dtags")
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--disable-new-dtags")
-    set_target_properties(${PLUGIN_MANAGER} PROPERTIES
-            BUILD_RPATH "$ORIGIN;$ORIGIN/lib;$ORIGIN/../lib;$ORIGIN/../../"
-            INSTALL_RPATH "$ORIGIN;$ORIGIN/lib;$ORIGIN/../lib;$ORIGIN/../../"
-    )
 endif ()
 
 add_executable(moduleCli 
@@ -78,5 +70,11 @@ if(ARCH_NAME STREQUAL "loongarch64")
     target_link_libraries(moduleCli PRIVATE Boost::filesystem Boost::process Boost::context)
 else ()
     target_link_libraries(moduleCli PRIVATE Boost::filesystem Boost::process)
+endif ()
+if (NOT WIN32)
+    set_target_properties(moduleCli PROPERTIES
+            BUILD_RPATH "$ORIGIN;$ORIGIN/lib;$ORIGIN/../lib;$ORIGIN/../../"
+            INSTALL_RPATH "$ORIGIN;$ORIGIN/lib;$ORIGIN/../lib;$ORIGIN/../../"
+    )
 endif ()
 install(TARGETS moduleCli DESTINATION bin)
