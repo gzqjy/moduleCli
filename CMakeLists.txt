@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+add_compile_definitions(SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE)
+
 if(WIN32)
     # 0x0601 代表 Windows 7 (这是 Boost 建议的最小兼容版本)
     # 如果你只打算支持 Windows 10 及以上，可以设为 0x0A00
@@ -48,6 +50,16 @@ else ()
     find_package(Boost 1.87.0 CONFIG REQUIRED COMPONENTS
             filesystem
             process
+    )
+endif ()
+
+if (WIN32)
+else ()
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--disable-new-dtags")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--disable-new-dtags")
+    set_target_properties(${PLUGIN_MANAGER} PROPERTIES
+            BUILD_RPATH "$ORIGIN;$ORIGIN/lib;$ORIGIN/../lib;$ORIGIN/../../"
+            INSTALL_RPATH "$ORIGIN;$ORIGIN/lib;$ORIGIN/../lib;$ORIGIN/../../"
     )
 endif ()
 

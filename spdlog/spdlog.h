@@ -61,6 +61,11 @@ public:
     log(level::err, format_string(fmt, args...));
   }
 
+  template <typename... Args>
+  void debug(const std::string &fmt, Args... args) {
+    log(level::debug, format_string(fmt, args...));
+  }
+
 private:
   void log(level::level_enum lvl, const std::string &msg) {
     if (lvl < level_) {
@@ -105,4 +110,5 @@ inline void flush_every(std::chrono::seconds) {}
 
 #define SPDLOG_INFO(...) ::spdlog::default_logger()->info(__VA_ARGS__)
 #define SPDLOG_ERROR(...) ::spdlog::default_logger()->error(__VA_ARGS__)
+#define SPDLOG_DEBUG(...) ::spdlog::default_logger()->debug(__VA_ARGS__)
 #define SPDLOG_LEVEL_TRACE 0

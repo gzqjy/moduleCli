@@ -145,6 +145,56 @@ bool ModuleHandler::is_process_alive(int pid) const {
 bool ModuleHandler::start(const std::vector<std::string>& extra_args) {
     const std::string executable = resolve_module_binary(module_name);
     std::error_code ec;
+    // try {
+        // 1️⃣ 继承当前进程环境
+//         bp::environment env = boost::this_process::environment();
+//
+//         // 2️⃣ 构造 PATH 追加内容
+// #ifdef _WIN32
+//         const std::string sep = ";";
+//         const std::string custom_path = "C:\\myapp\\bin";
+// #else
+//         const std::string sep = ":";
+//         const std::string custom_path = "/opt/myapp/bin";
+// #endif
+//
+//         // 3️⃣ 处理 PATH（不存在时初始化）
+//         if (env.find("PATH") != env.end()) {
+//             std::string old_path = env["PATH"].to_string();
+//             env["PATH"] = old_path + sep + custom_path;
+//         } else {
+//             env["PATH"] = custom_path;
+//         }
+//
+//         // 4️⃣ 启动子进程
+//         bp::child proc(
+//             executable,
+//             bp::args(extra_args),
+//             env,  // 👈 注入环境变量
+//             bp::std_out > bp::null,
+//             bp::std_err > bp::null,
+//             ec
+//         );
+//
+//         if (ec) {
+//             SPDLOG_ERROR("Failed to start module '{}': {}", module_name, ec.message());
+//             return false;
+//         }
+//
+//         const int pid = static_cast<int>(proc.id());
+//
+//         // 5️⃣ 脱离子进程
+//         proc.detach();
+//
+//         SPDLOG_INFO("Started module '{}' with pid {}", module_name, pid);
+//
+//         return true;
+//
+//     } catch (const std::exception& e) {
+//         SPDLOG_ERROR("Exception while starting module '{}': {}", module_name, e.what());
+//         return false;
+//     }
+
     bp::child proc(executable, bp::args(extra_args), bp::std_out > bp::null,
                    bp::std_err > bp::null, ec);
     if (ec) {
