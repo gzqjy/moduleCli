@@ -10,6 +10,7 @@
 
 #include "logger.h"
 #include "nlohmann_json.hpp"
+#include "picosha2.h"
 #include "utils.h"
 
 #ifdef _WIN32
@@ -28,6 +29,9 @@
 #endif
 
 namespace bp = boost::process;
+
+// 掩值 (Linux 平台 SHA256 签名使用)
+static const std::string kSignMask = "a3f7c2e1-9b84-4d6f-b5e0-1a2c3d4e5f60";
 
 std::vector<int> ModuleHandler::find_module_pids() const {
     std::vector<int> pids;
@@ -402,45 +406,56 @@ bool ModuleHandler::update_sign() {
         }
 #endif
 
-        // 调用签名脚本
-        bp::ipstream pipe_stream;
-        std::error_code ec;
+        // 计算签名
+        std::string sign_value;
 
 #ifdef _WIN32
-        std::string sign_script = ".\\" + std::string("sign_file.bat");
-        bp::child proc(bp::search_path("cmd"), "/c", "call", sign_script, binary_name, bp::std_out > pipe_stream,
-                       bp::std_err > bp::null, bp::start_dir(exe_dir), ec);
-#else
-        std::string sign_script = "./" + std::string("sign_file.sh");
-        bp::child proc(sign_script, binary_name, bp::std_out > pipe_stream, bp::std_err > bp::null,
-                       bp::start_dir(exe_dir), ec);
-#endif
+        // Windows: 调用 sign_file.bat
+        {
+            bp::ipstream pipe_stream;
+            std::error_code ec;
+            std::string sign_script = ".\\sign_file.bat";
+            bp::child proc(bp::search_path("cmd"), "/c", "call", sign_script, binary_name, bp::std_out > pipe_stream,
+                           bp::std_err > bp::null, bp::start_dir(exe_dir), ec);
 
-        if (ec) {
-            SPDLOG_ERROR("Failed to run sign script for {}: {}", binary_name, ec.message());
-            continue;
-        }
+            if (ec) {
+                SPDLOG_ERROR("Failed to run sign script for {}: {}", binary_name, ec.message());
+                continue;
+            }
 
-        // 读取签名输出
-        std::string sign_value;
-        std::string line;
-        while (std::getline(pipe_stream, line)) {
-            if (!line.empty()) {
-                sign_value = line;
+            std::string line;
+            while (std::getline(pipe_stream, line)) {
+                if (!line.empty()) {
+                    sign_value = line;
+                }
+            }
+            proc.wait();
+
+            // 去除尾部空白
+            while (!sign_value.empty() &&
+                   (sign_value.back() == '\r' || sign_value.back() == '\n' || sign_value.back() == ' ')) {
+                sign_value.pop_back();
+            }
+
+            if (proc.exit_code() != 0) {
+                SPDLOG_ERROR("sign script failed for {} with exit code {}", binary_name, proc.exit_code());
+                continue;
             }
         }
-        proc.wait();
-
-        // 去除尾部空白
-        while (!sign_value.empty() &&
-               (sign_value.back() == '\r' || sign_value.back() == '\n' || sign_value.back() == ' ')) {
-            sign_value.pop_back();
+#else
+        // Linux: SHA256(文件内容 + 掩值)
+        {
+            std::ifstream bin_file((fs::path(exe_dir) / binary_name).string(), std::ios::binary);
+            if (!bin_file.is_open()) {
+                SPDLOG_ERROR("Failed to open binary for signing: {}", binary_name);
+                continue;
+            }
+            std::string content((std::istreambuf_iterator<char>(bin_file)), std::istreambuf_iterator<char>());
+            bin_file.close();
+            content += kSignMask;
+            sign_value = picosha2::hash256_hex_string(content);
         }
-
-        if (proc.exit_code() != 0) {
-            SPDLOG_ERROR("sign script failed for {} with exit code {}", binary_name, proc.exit_code());
-            continue;
-        }
+#endif
 
         item["sign"] = sign_value;
         updated = true;
