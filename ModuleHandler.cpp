@@ -348,36 +348,36 @@ bool ModuleHandler::postun() {
 bool ModuleHandler::update_sign() {
     namespace fs = boost::filesystem;
     const std::string exe_dir = get_executable_dir();
-    fs::path manifest_path = fs::path(exe_dir) / "manifest.json";
+    fs::path mainfest_path = fs::path(exe_dir) / "mainfest.json";
 
-    if (!fs::exists(manifest_path)) {
-        SPDLOG_ERROR("manifest.json not found: {}", manifest_path.string());
+    if (!fs::exists(mainfest_path)) {
+        SPDLOG_ERROR("mainfest.json not found: {}", mainfest_path.string());
         return false;
     }
 
     // 读取文件
-    std::ifstream ifs(manifest_path.string());
+    std::ifstream ifs(mainfest_path.string());
     if (!ifs.is_open()) {
-        SPDLOG_ERROR("Failed to open manifest.json: {}", manifest_path.string());
+        SPDLOG_ERROR("Failed to open mainfest.json: {}", mainfest_path.string());
         return false;
     }
 
-    nlohmann::json manifest;
+    nlohmann::json mainfest;
     try {
-        ifs >> manifest;
+        ifs >> mainfest;
     } catch (const nlohmann::json::parse_error& e) {
-        SPDLOG_ERROR("Failed to parse manifest.json: {}", e.what());
+        SPDLOG_ERROR("Failed to parse mainfest.json: {}", e.what());
         return false;
     }
     ifs.close();
 
-    if (!manifest.is_array()) {
-        SPDLOG_ERROR("manifest.json root is not an array");
+    if (!mainfest.is_array()) {
+        SPDLOG_ERROR("mainfest.json root is not an array");
         return false;
     }
 
     bool updated = false;
-    for (auto& item : manifest) {
+    for (auto& item : mainfest) {
         if (!item.is_object()) continue;
         if (!item.contains("name") || !item.contains("entry") || !item.contains("sign")) continue;
         if (item["name"].get<std::string>() != module_name) continue;
@@ -469,7 +469,6 @@ bool ModuleHandler::update_sign() {
             sign_value = picosha2::get_hash_hex_string(hasher);
         }
 #endif
-
         item["sign"] = sign_value;
         updated = true;
         SPDLOG_INFO("Updated sign for entry '{}': {}", entry, sign_value);
@@ -480,15 +479,15 @@ bool ModuleHandler::update_sign() {
         return false;
     }
 
-    // 写回 manifest.json（缩进2空格）
-    std::ofstream ofs(manifest_path.string());
+    // 写回 mainfest.json（缩进2空格）
+    std::ofstream ofs(mainfest_path.string());
     if (!ofs.is_open()) {
-        SPDLOG_ERROR("Failed to write manifest.json");
+        SPDLOG_ERROR("Failed to write mainfest.json");
         return false;
     }
-    ofs << manifest.dump(2) << std::endl;
+    ofs << mainfest.dump(2) << std::endl;
     ofs.close();
 
-    SPDLOG_INFO("manifest.json updated successfully for module '{}'", module_name);
+    SPDLOG_INFO("mainfest.json updated successfully for module '{}'", module_name);
     return true;
 }
