@@ -25,7 +25,7 @@ setlocal
 cd "%basepath%build-%ARCH%"
 
 :: 执行 CMake 和构建
-set BOOST_ROOT=C:\devtool\boost_1_87_0
+set BOOST_ROOT=D:\boost_1_87_0
 set MSVC_ROOT=C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.29.30133
 
 ::set GCCROOT=D:\mingw32

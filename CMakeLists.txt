@@ -6,6 +6,10 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
 if(WIN32)
     # 0x0601 代表 Windows 7 (这是 Boost 建议的最小兼容版本)
     # 如果你只打算支持 Windows 10 及以上，可以设为 0x0A00

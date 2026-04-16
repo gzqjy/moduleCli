@@ -443,17 +443,30 @@ bool ModuleHandler::update_sign() {
             }
         }
 #else
-        // Linux: SHA256(文件内容 + 掩值)
+        // Linux: SHA256(文件内容 + 掩值) 采用分块读取优化大文件内存占用
         {
             std::ifstream bin_file((fs::path(exe_dir) / binary_name).string(), std::ios::binary);
             if (!bin_file.is_open()) {
                 SPDLOG_ERROR("Failed to open binary for signing: {}", binary_name);
                 continue;
             }
-            std::string content((std::istreambuf_iterator<char>(bin_file)), std::istreambuf_iterator<char>());
+
+            picosha2::hash256_one_by_one hasher;
+            constexpr size_t buffer_size = 1024 * 1024; // 1MB chunk size
+            std::vector<char> buffer(buffer_size);
+
+            while (bin_file) {
+                bin_file.read(buffer.data(), buffer.size());
+                std::streamsize read_count = bin_file.gcount();
+                if (read_count > 0) {
+                    hasher.process(buffer.begin(), buffer.begin() + read_count);
+                }
+            }
             bin_file.close();
-            content += kSignMask;
-            sign_value = picosha2::hash256_hex_string(content);
+
+            hasher.process(kSignMask.begin(), kSignMask.end());
+            hasher.finish();
+            sign_value = picosha2::get_hash_hex_string(hasher);
         }
 #endif
 
