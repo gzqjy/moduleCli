@@ -1,6 +1,8 @@
 build/
 build-*/
 moduleCli-*/
+moduleCli-*.tar.gz
+output-*/
 *.zip
 *.exe
 *.log

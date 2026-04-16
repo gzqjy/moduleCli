@@ -75,10 +75,12 @@ if(ARCH_NAME STREQUAL "loongarch64")
 else ()
     target_link_libraries(moduleCli PRIVATE Boost::filesystem Boost::process)
 endif ()
+
 if (NOT WIN32)
     set_target_properties(moduleCli PROPERTIES
             BUILD_RPATH "$ORIGIN;$ORIGIN/lib;$ORIGIN/../lib;$ORIGIN/../../"
             INSTALL_RPATH "$ORIGIN;$ORIGIN/lib;$ORIGIN/../lib;$ORIGIN/../../"
     )
-endif ()
+endif()
+
 install(TARGETS moduleCli DESTINATION bin)
