@@ -20,8 +20,7 @@ void print_usage(const char* program_name) {
               << "Commands: start | stop | sign | preinst | postinst | preun | postun" << std::endl;
 }
 
-bool handle_commands(const std::string& command, const std::vector<std::string>& extra_args) {
-    const std::string module_name = extra_args.empty() ? "" : extra_args.front();
+bool handle_commands(const std::string& command, const std::string& module_name, const std::vector<std::string>& extra_args) {
     if (module_name.empty()) {
         SPDLOG_ERROR("Missing module_name argument.");
         return false;
@@ -63,10 +62,11 @@ int main(int argc, char* argv[]) {
     std::string command = argv[1];
     std::string magicnum = argv[2];
 
-    // 3. 提取剩余的 arg1, arg2...
+    // 3. 提取 module_name 及剩余的 arg1, arg2...
+    std::string module_name = argv[3];
     std::vector<std::string> extra_args;
-    extra_args.reserve(argc - 3);
-    for (int i = 3; i < argc; ++i) {
+    extra_args.reserve(argc - 4);
+    for (int i = 4; i < argc; ++i) {
         extra_args.push_back(argv[i]);
     }
 
@@ -77,7 +77,7 @@ int main(int argc, char* argv[]) {
     }
 
     // 5. 执行命令逻辑
-    if (!handle_commands(command, extra_args)) {
+    if (!handle_commands(command, module_name, extra_args)) {
         return 3;
     }
 

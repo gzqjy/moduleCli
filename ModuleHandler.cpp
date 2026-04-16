@@ -72,12 +72,29 @@ std::vector<int> ModuleHandler::find_module_pids() const {
         int pid = std::atoi(dirp->d_name);
         if (pid == self_pid) continue;
 
+        std::string cmdline_path = std::string("/proc/") + dirp->d_name + "/cmdline";
+        std::ifstream cmd_file(cmdline_path);
+        if (cmd_file.is_open()) {
+            std::string arg;
+            bool found = false;
+            while (std::getline(cmd_file, arg, '\0')) {
+                if (basename_of(arg) == process_name) {
+                    pids.push_back(pid);
+                    found = true;
+                    break;
+                }
+            }
+            if (found) continue;
+        }
+
         std::string comm_path = std::string("/proc/") + dirp->d_name + "/comm";
         std::ifstream comm_file(comm_path);
         if (comm_file.is_open()) {
             std::string comm_name;
             std::getline(comm_file, comm_name);
             if (comm_name == process_name) {
+                pids.push_back(pid);
+            } else if (comm_name.length() >= 15 && process_name.find(comm_name) == 0) {
                 pids.push_back(pid);
             }
         }
@@ -288,14 +305,16 @@ bool ModuleHandler::backup_files() const {
     for (const auto& file : files) {
         fs::path src = fs::path(get_executable_dir()) / file;
         fs::path dst = backup_dir / file;
-        if (fs::exists(src)) {
-            fs::copy_file(src, dst, fs::copy_options::overwrite_existing, ec);
-            if (ec) {
-                SPDLOG_ERROR("Failed to backup {}: {}", file, ec.message());
-                return false;
+        boost::system::error_code copy_ec;
+        fs::copy_file(src, dst, fs::copy_options::overwrite_existing, copy_ec);
+        if (copy_ec) {
+            if (copy_ec == boost::system::errc::no_such_file_or_directory) {
+                continue;
             }
-            SPDLOG_INFO("Backed up {} to {}", file, dst.string());
+            SPDLOG_ERROR("Failed to backup {}: {}", file, copy_ec.message());
+            return false;
         }
+        SPDLOG_INFO("Backed up {} to {}", file, dst.string());
     }
     return true;
 }
@@ -310,15 +329,16 @@ bool ModuleHandler::restore_files() const {
     for (const auto& file : files) {
         fs::path src = backup_dir / file;
         fs::path dst = fs::path(get_executable_dir()) / file;
-        if (fs::exists(src)) {
-            boost::system::error_code ec;
-            fs::copy_file(src, dst, fs::copy_options::overwrite_existing, ec);
-            if (ec) {
-                SPDLOG_ERROR("Failed to restore {}: {}", file, ec.message());
-                return false;
+        boost::system::error_code copy_ec;
+        fs::copy_file(src, dst, fs::copy_options::overwrite_existing, copy_ec);
+        if (copy_ec) {
+            if (copy_ec == boost::system::errc::no_such_file_or_directory) {
+                continue;
             }
-            SPDLOG_INFO("Restored {} from {}", file, src.string());
+            SPDLOG_ERROR("Failed to restore {}: {}", file, copy_ec.message());
+            return false;
         }
+        SPDLOG_INFO("Restored {} from {}", file, src.string());
     }
     return true;
 }
