@@ -55,11 +55,6 @@ else ()
     )
 endif ()
 
-if (NOT WIN32)
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--disable-new-dtags")
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--disable-new-dtags")
-endif ()
-
 add_executable(moduleCli 
     main.cpp 
     utils.cpp 
@@ -68,6 +63,17 @@ add_executable(moduleCli
     PluginLoaderHandler.cpp 
     ModuleFactory.cpp
 )
+
+if (NOT WIN32)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--disable-new-dtags")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--disable-new-dtags")
+    
+    set_target_properties(moduleCli PROPERTIES
+            BUILD_RPATH "$ORIGIN;$ORIGIN/lib;$ORIGIN/../lib;$ORIGIN/../../"
+            INSTALL_RPATH "$ORIGIN;$ORIGIN/lib;$ORIGIN/../lib;$ORIGIN/../../"
+    )
+endif ()
+
 target_include_directories(moduleCli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(moduleCli PRIVATE ${Boost_INCLUDE_DIRS})
 # 3. 显式链接（这会告诉 CMake 去找具体的库）
@@ -77,11 +83,5 @@ else ()
     target_link_libraries(moduleCli PRIVATE Boost::filesystem Boost::process)
 endif ()
 
-if (NOT WIN32)
-    set_target_properties(moduleCli PROPERTIES
-            BUILD_RPATH "$ORIGIN;$ORIGIN/lib;$ORIGIN/../lib;$ORIGIN/../../"
-            INSTALL_RPATH "$ORIGIN;$ORIGIN/lib;$ORIGIN/../lib;$ORIGIN/../../"
-    )
-endif()
 
 install(TARGETS moduleCli DESTINATION bin)
