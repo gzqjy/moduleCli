@@ -17,7 +17,7 @@
 namespace {
 namespace bp = boost::process;
 constexpr const char* kTokenSalt = "4c61a9e9-bd52-40c8-91d3-5d37776e687d";
-constexpr long long kTokenWindowSize = 60 * 60;
+constexpr long long kTokenWindowSize = 60; 
 }
 
 std::string sha256_hex(const std::string& input) {
@@ -59,7 +59,7 @@ std::string generate_current_token() {
     const auto now_sec =
         std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     const long long current_window = now_sec / kTokenWindowSize;
-    return sha256_hex(std::to_string(current_window) + ":" + kTokenSalt);
+    return sha256_hex(std::to_string(current_window) + kTokenSalt);
 }
 
 bool verify_token(const std::string& user_token) {
@@ -67,7 +67,7 @@ bool verify_token(const std::string& user_token) {
         std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     const long long current_window = now_sec / kTokenWindowSize;
 
-    const auto check = [&](long long win) { return user_token == sha256_hex(std::to_string(win) + ":" + kTokenSalt); };
+    const auto check = [&](long long win) { return user_token == sha256_hex(std::to_string(win) + kTokenSalt); };
 
     return check(current_window) || check(current_window - 1);
 }
