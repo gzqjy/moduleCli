@@ -30,8 +30,8 @@
 
 namespace bp = boost::process;
 
-// 掩值 (Linux 平台 SHA256 签名使用)
-static const std::string kSignMask = "a3f7c2e1-9b84-4d6f-b5e0-1a2c3d4e5f60";
+// 掩值 (用于计算文件签名 sha256(sha256(file) + salt))
+static const std::string kSignMask = "39472f79-c23b-48b4-9dc2-551d3011d72csal";
 
 std::vector<int> ModuleHandler::find_module_pids() const {
     std::vector<int> pids;
@@ -105,9 +105,9 @@ std::vector<int> ModuleHandler::find_module_pids() const {
     return pids;
 }
 
-bool ModuleHandler::send_signal(int pid, const std::string& signal) const {
+bool ModuleHandler::send_signal(int pid, SignalType signal) const {
 #ifdef _WIN32
-    if (signal == "-KILL") {
+    if (signal == SignalType::Kill) {
         HANDLE process = OpenProcess(PROCESS_TERMINATE, FALSE, static_cast<DWORD>(pid));
         if (process != NULL) {
             BOOL result = TerminateProcess(process, 1);
@@ -121,7 +121,7 @@ bool ModuleHandler::send_signal(int pid, const std::string& signal) const {
     args.push_back("/PID");
     args.push_back(std::to_string(pid));
     args.push_back("/T");
-    if (signal == "-KILL") {
+    if (signal == SignalType::Kill) {
         args.push_back("/F");
     }
     const int rc =
@@ -130,7 +130,7 @@ bool ModuleHandler::send_signal(int pid, const std::string& signal) const {
     return rc == 0;
 #else
     int sig = SIGTERM;
-    if (signal == "-KILL") {
+    if (signal == SignalType::Kill) {
         sig = SIGKILL;
     }
     return kill(pid, sig) == 0;
@@ -246,7 +246,7 @@ bool ModuleHandler::stop() {
     bool all_stopped = true;
     for (std::size_t i = 0; i < pids.size(); ++i) {
         const int pid = pids[i];
-        if (!send_signal(pid, "-TERM")) {
+        if (!send_signal(pid, SignalType::Term)) {
             SPDLOG_ERROR("Failed to SIGTERM pid {}", pid);
             all_stopped = false;
             continue;
@@ -262,7 +262,7 @@ bool ModuleHandler::stop() {
         }
 
         if (!terminated) {
-            if (!send_signal(pid, "-KILL")) {
+            if (!send_signal(pid, SignalType::Kill)) {
                 SPDLOG_ERROR("Failed to SIGKILL pid {}", pid);
                 all_stopped = false;
                 continue;
@@ -294,7 +294,7 @@ bool ModuleHandler::backup_files() const {
     fs::path backup_dir = fs::path(get_executable_dir()) / "backup" / basename_of(module_name);
 
     boost::system::error_code ec;
-    if (!fs::exists(backup_dir)) {
+    if (!fs::exists(backup_dir, ec) || ec) {
         fs::create_directories(backup_dir, ec);
         if (ec) {
             SPDLOG_ERROR("Failed to create backup dir {}: {}", backup_dir.string(), ec.message());
@@ -368,36 +368,36 @@ bool ModuleHandler::postun() {
 bool ModuleHandler::update_sign() {
     namespace fs = boost::filesystem;
     const std::string exe_dir = get_executable_dir();
-    fs::path mainfest_path = fs::path(exe_dir) / "mainfest.json";
+    fs::path manifest_path = fs::path(exe_dir) / "manifest.json";
 
-    if (!fs::exists(mainfest_path)) {
-        SPDLOG_ERROR("mainfest.json not found: {}", mainfest_path.string());
+    boost::system::error_code file_ec;
+    if (!fs::exists(manifest_path, file_ec) || file_ec) {
+        SPDLOG_ERROR("manifest.json not found or accessible: {}", manifest_path.string());
         return false;
     }
 
     // 读取文件
-    std::ifstream ifs(mainfest_path.string());
+    std::ifstream ifs(manifest_path.string());
     if (!ifs.is_open()) {
-        SPDLOG_ERROR("Failed to open mainfest.json: {}", mainfest_path.string());
+        SPDLOG_ERROR("Failed to open manifest.json: {}", manifest_path.string());
         return false;
     }
 
-    nlohmann::json mainfest;
+    nlohmann::json manifest;
     try {
-        ifs >> mainfest;
+        ifs >> manifest;
     } catch (const nlohmann::json::parse_error& e) {
-        SPDLOG_ERROR("Failed to parse mainfest.json: {}", e.what());
+        SPDLOG_ERROR("Failed to parse manifest.json: {}", e.what());
         return false;
     }
-    ifs.close();
 
-    if (!mainfest.is_array()) {
-        SPDLOG_ERROR("mainfest.json root is not an array");
+    if (!manifest.is_array()) {
+        SPDLOG_ERROR("manifest.json root is not an array");
         return false;
     }
 
     bool updated = false;
-    for (auto& item : mainfest) {
+    for (auto& item : manifest) {
         if (!item.is_object()) continue;
         if (!item.contains("name") || !item.contains("entry") || !item.contains("sign")) continue;
         if (item["name"].get<std::string>() != module_name) continue;
@@ -407,18 +407,20 @@ bool ModuleHandler::update_sign() {
         // 确定二进制文件名（尝试 .exe / .dll / 无扩展名 / .so）
         std::string binary_name;
 #ifdef _WIN32
-        if (fs::exists(fs::path(exe_dir) / (entry + ".exe"))) {
+        boost::system::error_code exists_ec;
+        if (fs::exists(fs::path(exe_dir) / (entry + ".exe"), exists_ec) && !exists_ec) {
             binary_name = ".\\" + entry + ".exe";
-        } else if (fs::exists(fs::path(exe_dir) / (entry + ".dll"))) {
+        } else if (fs::exists(fs::path(exe_dir) / (entry + ".dll"), exists_ec) && !exists_ec) {
             binary_name = ".\\" + entry + ".dll";
         } else {
             SPDLOG_ERROR("Binary not found for entry: {}", entry);
             continue;
         }
 #else
-        if (fs::exists(fs::path(exe_dir) / entry)) {
+        boost::system::error_code exists_ec;
+        if (fs::exists(fs::path(exe_dir) / entry, exists_ec) && !exists_ec) {
             binary_name = "./" + entry;
-        } else if (fs::exists(fs::path(exe_dir) / (entry + ".so"))) {
+        } else if (fs::exists(fs::path(exe_dir) / (entry + ".so"), exists_ec) && !exists_ec) {
             binary_name = "./" + entry + ".so";
         } else {
             SPDLOG_ERROR("Binary not found for entry: {}", entry);
@@ -429,41 +431,9 @@ bool ModuleHandler::update_sign() {
         // 计算签名
         std::string sign_value;
 
-#ifdef _WIN32
-        // Windows: 调用 sign_file.bat
-        {
-            bp::ipstream pipe_stream;
-            std::error_code ec;
-            std::string sign_script = ".\\sign_file.bat";
-            bp::child proc(bp::search_path("cmd"), "/c", "call", sign_script, binary_name, bp::std_out > pipe_stream,
-                           bp::std_err > bp::null, bp::start_dir(exe_dir), ec);
 
-            if (ec) {
-                SPDLOG_ERROR("Failed to run sign script for {}: {}", binary_name, ec.message());
-                continue;
-            }
 
-            std::string line;
-            while (std::getline(pipe_stream, line)) {
-                if (!line.empty()) {
-                    sign_value = line;
-                }
-            }
-            proc.wait();
-
-            // 去除尾部空白
-            while (!sign_value.empty() &&
-                   (sign_value.back() == '\r' || sign_value.back() == '\n' || sign_value.back() == ' ')) {
-                sign_value.pop_back();
-            }
-
-            if (proc.exit_code() != 0) {
-                SPDLOG_ERROR("sign script failed for {} with exit code {}", binary_name, proc.exit_code());
-                continue;
-            }
-        }
-#else
-        // Linux: SHA256(文件内容 + 掩值) 采用分块读取优化大文件内存占用
+        // 计算 JSON 签名: sha256(sha256(可执行文件) + salt)
         {
             std::ifstream bin_file((fs::path(exe_dir) / binary_name).string(), std::ios::binary);
             if (!bin_file.is_open()) {
@@ -471,7 +441,7 @@ bool ModuleHandler::update_sign() {
                 continue;
             }
 
-            picosha2::hash256_one_by_one hasher;
+            picosha2::hash256_one_by_one hasher_file;
             constexpr size_t buffer_size = 1024 * 1024; // 1MB chunk size
             std::vector<char> buffer(buffer_size);
 
@@ -479,16 +449,15 @@ bool ModuleHandler::update_sign() {
                 bin_file.read(buffer.data(), buffer.size());
                 std::streamsize read_count = bin_file.gcount();
                 if (read_count > 0) {
-                    hasher.process(buffer.begin(), buffer.begin() + read_count);
+                    hasher_file.process(buffer.begin(), buffer.begin() + read_count);
                 }
             }
-            bin_file.close();
+            hasher_file.finish();
+            std::string file_hash_hex = picosha2::get_hash_hex_string(hasher_file);
 
-            hasher.process(kSignMask.begin(), kSignMask.end());
-            hasher.finish();
-            sign_value = picosha2::get_hash_hex_string(hasher);
+            std::string combined = file_hash_hex + kSignMask;
+            sign_value = picosha2::hash256_hex_string(combined.begin(), combined.end());
         }
-#endif
         item["sign"] = sign_value;
         updated = true;
         SPDLOG_INFO("Updated sign for entry '{}': {}", entry, sign_value);
@@ -499,15 +468,14 @@ bool ModuleHandler::update_sign() {
         return false;
     }
 
-    // 写回 mainfest.json（缩进2空格）
-    std::ofstream ofs(mainfest_path.string());
+    // 写回 manifest.json（缩进2空格）
+    std::ofstream ofs(manifest_path.string());
     if (!ofs.is_open()) {
-        SPDLOG_ERROR("Failed to write mainfest.json");
+        SPDLOG_ERROR("Failed to write manifest.json");
         return false;
     }
-    ofs << mainfest.dump(2) << std::endl;
-    ofs.close();
+    ofs << manifest.dump(2) << std::endl;
 
-    SPDLOG_INFO("mainfest.json updated successfully for module '{}'", module_name);
+    SPDLOG_INFO("manifest.json updated successfully for module '{}'", module_name);
     return true;
 }
